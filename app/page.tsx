@@ -16,8 +16,22 @@ import {
   type DistilledMemory,
   type SessionCloser,
 } from "../lib/memory/session-store";
-import { MUSIC_TRACKS, type MusicTrack } from "../lib/config/music";
-import { SYNTH_FACTORIES, type SynthEngine } from "../lib/audio/synth-tracks";
+import { BUILTIN_TRACKS, type MusicTrack } from "../lib/config/music";
+import {
+  addLocalTrack,
+  deleteLocalTrack,
+  formatFileSize,
+  listLocalTracks,
+  type LocalTrack,
+} from "../lib/audio/local-library";
+
+type PlayableTrack = {
+  id: string;
+  title: string;
+  desc: string;
+  src: string;
+  builtIn: boolean;
+};
 
 type MemoryGroup = {
   dateKey: string;
@@ -35,7 +49,19 @@ type CaptionPhase = "idle" | "entering" | "exiting";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 
-const TRACKS: MusicTrack[] = MUSIC_TRACKS;
+function builtInAsPlayable(t: MusicTrack): PlayableTrack {
+  return { id: t.id, title: t.title, desc: t.desc, src: t.src, builtIn: true };
+}
+
+function localAsPlayable(t: LocalTrack & { objectUrl: string }): PlayableTrack {
+  return {
+    id: t.id,
+    title: t.title,
+    desc: `${formatFileSize(t.size)} · from your computer`,
+    src: t.objectUrl,
+    builtIn: false,
+  };
+}
 
 const TIME_COPY: Record<string, { label: string; warm: string }> = {
   "late night": { label: "late night", warm: "she waited up a little" },
@@ -129,12 +155,16 @@ export default function Home() {
   const [playing, setPlaying] = useState(false);
   const [audioVolume, setAudioVolume] = useState(0.45);
   const [audioError, setAudioError] = useState(false);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const masterGainRef = useRef<GainNode | null>(null);
-  const engineRef = useRef<SynthEngine | null>(null);
-  const mp3Ref = useRef<HTMLAudioElement | null>(null);
+  const [localTracks, setLocalTracks] = useState<Array<LocalTrack & { objectUrl: string }>>([]);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const [resetConfirming, setResetConfirming] = useState(false);
   const [memConfirmId, setMemConfirmId] = useState<string | null>(null);
+
+  const TRACKS: PlayableTrack[] = useMemo(() => {
+    return [...BUILTIN_TRACKS.map(builtInAsPlayable), ...localTracks.map(localAsPlayable)];
+  }, [localTracks]);
   const [motes, setMotes] = useState<
     Array<{ left: string; size: number; duration: number; delay: number; opacity: number }>
   >([]);
@@ -221,111 +251,86 @@ export default function Home() {
     };
   }, []);
 
-  // lazy-init Web Audio on first track play (required by autoplay policy)
-  const ensureAudioContext = useCallback(() => {
-    if (audioCtxRef.current) return audioCtxRef.current;
-    if (typeof window === "undefined") return null;
-    const Ctor =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!Ctor) return null;
-    const ctx = new Ctor();
-    const master = ctx.createGain();
-    master.gain.value = audioVolume;
-    master.connect(ctx.destination);
-    audioCtxRef.current = ctx;
-    masterGainRef.current = master;
-    return ctx;
-  }, [audioVolume]);
-
-  const stopCurrentSound = useCallback(() => {
-    if (engineRef.current) {
-      try {
-        engineRef.current.stop();
-      } catch {}
-      engineRef.current = null;
-    }
-    if (mp3Ref.current) {
-      mp3Ref.current.pause();
-      mp3Ref.current.src = "";
-      mp3Ref.current = null;
-    }
+  // single shared <audio> element for mp3 playback
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const audio = new Audio();
+    audio.preload = "none";
+    audio.volume = audioVolume;
+    audio.addEventListener("play", () => {
+      setPlaying(true);
+      setAudioError(false);
+    });
+    audio.addEventListener("pause", () => setPlaying(false));
+    audio.addEventListener("error", () => {
+      setPlaying(false);
+      setAudioError(true);
+    });
+    audioRef.current = audio;
+    return () => {
+      audio.pause();
+      audio.src = "";
+      audioRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // advance to next track on end — separate effect so TRACKS closure is fresh
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const onEnded = () => {
+      if (TRACKS.length === 0) return;
+      setCurrentTrack((idx) => (idx + 1) % TRACKS.length);
+    };
+    audio.addEventListener("ended", onEnded);
+    return () => audio.removeEventListener("ended", onEnded);
+  }, [TRACKS.length]);
 
   // drive audio output from currentTrack + playing state
   useEffect(() => {
-    if (currentTrack < 0 || !playing) {
-      if (audioCtxRef.current && audioCtxRef.current.state === "running") {
-        // keep ctx alive but stop the engine
-      }
-      stopCurrentSound();
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (currentTrack < 0 || currentTrack >= TRACKS.length || !playing) {
+      audio.pause();
       return;
     }
-
     const track = TRACKS[currentTrack];
-    stopCurrentSound();
     setAudioError(false);
-
-    if (track.engine) {
-      const ctx = ensureAudioContext();
-      const master = masterGainRef.current;
-      if (!ctx || !master) {
-        setAudioError(true);
-        setPlaying(false);
-        return;
-      }
-      const factory = SYNTH_FACTORIES[track.engine];
-      if (!factory) {
-        setAudioError(true);
-        setPlaying(false);
-        return;
-      }
-      ctx.resume().then(() => {
-        const engine = factory(ctx, master);
-        engine.start();
-        engineRef.current = engine;
-      });
-    } else if (track.src) {
-      const audio = new Audio(track.src);
-      audio.volume = audioVolume;
-      audio.addEventListener("ended", () => {
-        setCurrentTrack((idx) => (idx + 1) % TRACKS.length);
-      });
-      audio.addEventListener("error", () => {
-        setPlaying(false);
-        setAudioError(true);
-      });
-      audio.play().catch(() => {
-        setPlaying(false);
-        setAudioError(true);
-      });
-      mp3Ref.current = audio;
+    if (audio.src !== track.src) {
+      audio.src = track.src;
     }
-  }, [currentTrack, playing, ensureAudioContext, stopCurrentSound, audioVolume]);
+    const p = audio.play();
+    if (p && typeof p.catch === "function") {
+      p.catch(() => {
+        setPlaying(false);
+        setAudioError(true);
+      });
+    }
+  }, [currentTrack, playing, TRACKS]);
 
-  // keep volume in sync across both paths
+  // keep volume in sync
   useEffect(() => {
-    if (masterGainRef.current && audioCtxRef.current) {
-      masterGainRef.current.gain.linearRampToValueAtTime(
-        audioVolume,
-        audioCtxRef.current.currentTime + 0.15,
-      );
-    }
-    if (mp3Ref.current) {
-      mp3Ref.current.volume = audioVolume;
-    }
+    if (audioRef.current) audioRef.current.volume = audioVolume;
   }, [audioVolume]);
 
-  // cleanup on unmount
+  // load user-uploaded local library on mount
   useEffect(() => {
+    let cancelled = false;
+    void listLocalTracks()
+      .then((list) => {
+        if (!cancelled) setLocalTracks(list);
+      })
+      .catch(() => undefined);
     return () => {
-      stopCurrentSound();
-      if (audioCtxRef.current) {
-        audioCtxRef.current.close().catch(() => undefined);
-        audioCtxRef.current = null;
-      }
+      cancelled = true;
+      // revoke object URLs on unmount
+      setLocalTracks((current) => {
+        current.forEach((t) => URL.revokeObjectURL(t.objectUrl));
+        return current;
+      });
     };
-  }, [stopCurrentSound]);
+  }, []);
 
   // body class for sleep
   useEffect(() => {
@@ -531,6 +536,7 @@ export default function Home() {
   }, []);
 
   const onPlayPause = () => {
+    if (TRACKS.length === 0) return;
     if (currentTrack < 0) {
       setCurrentTrack(0);
       setPlaying(true);
@@ -540,19 +546,61 @@ export default function Home() {
   };
 
   const onPrevTrack = () => {
+    if (TRACKS.length === 0) return;
     setCurrentTrack((i) => (i <= 0 ? TRACKS.length - 1 : i - 1));
     setPlaying(true);
   };
 
   const onNextTrack = () => {
+    if (TRACKS.length === 0) return;
     setCurrentTrack((i) => (i + 1) % TRACKS.length);
     setPlaying(true);
   };
 
   const nowPlayingText =
-    currentTrack < 0
+    currentTrack < 0 || currentTrack >= TRACKS.length
       ? "nothing playing yet"
       : `${playing ? "♪ " : ""}${TRACKS[currentTrack].title} · ${TRACKS[currentTrack].desc}`;
+
+  const onOpenFilePicker = () => {
+    fileInputRef.current?.click();
+  };
+
+  const onFilesPicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+    setUploading(true);
+    try {
+      for (const file of files) {
+        if (!file.type.startsWith("audio/") && !/\.(mp3|wav|m4a|ogg)$/i.test(file.name)) continue;
+        await addLocalTrack(file);
+      }
+      const fresh = await listLocalTracks();
+      setLocalTracks((old) => {
+        old.forEach((t) => URL.revokeObjectURL(t.objectUrl));
+        return fresh;
+      });
+    } catch (err) {
+      console.warn("[bunny] upload failed:", err);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const onDeleteLocalTrack = async (id: string) => {
+    const idx = TRACKS.findIndex((t) => t.id === id);
+    if (idx === currentTrack) {
+      setPlaying(false);
+      setCurrentTrack(-1);
+    }
+    await deleteLocalTrack(id);
+    setLocalTracks((old) => {
+      const removed = old.find((t) => t.id === id);
+      if (removed) URL.revokeObjectURL(removed.objectUrl);
+      return old.filter((t) => t.id !== id);
+    });
+  };
 
   const memoryGroups = useMemo(() => groupMemoriesByDate(memories), [memories]);
 
@@ -777,36 +825,83 @@ export default function Home() {
           </button>
         </div>
         <div className="drawer-body">
-          {TRACKS.map((t, i) => (
-            <div
-              key={t.title}
-              className={`track ${i === currentTrack ? "playing" : ""}`}
-              onClick={() => {
-                setCurrentTrack(i);
-                setPlaying(true);
-              }}
+          <button
+            type="button"
+            className="music-upload-btn"
+            onClick={onOpenFilePicker}
+            disabled={uploading}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="14"
+              height="14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
             >
-              <div className="icon">
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                >
-                  <path d="M9 18V5l12-2v13" />
-                  <circle cx="6" cy="18" r="3" />
-                  <circle cx="18" cy="16" r="3" />
-                </svg>
-              </div>
-              <div className="meta-tx">
-                <div className="title">{t.title}</div>
-                <div className="desc">{t.desc}</div>
-              </div>
-              <div className="dur">{t.dur}</div>
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            <span>{uploading ? "adding…" : "add music from my computer"}</span>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="audio/*,.mp3,.wav,.m4a,.ogg"
+            multiple
+            hidden
+            onChange={onFilesPicked}
+          />
+          {TRACKS.length === 0 ? (
+            <div className="music-empty">
+              no music yet. tap the button above to add your own.
             </div>
-          ))}
+          ) : (
+            TRACKS.map((t, i) => (
+              <div
+                key={t.id}
+                className={`track ${i === currentTrack ? "playing" : ""}`}
+                onClick={() => {
+                  setCurrentTrack(i);
+                  setPlaying(true);
+                }}
+              >
+                <div className="icon">
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                  >
+                    <path d="M9 18V5l12-2v13" />
+                    <circle cx="6" cy="18" r="3" />
+                    <circle cx="18" cy="16" r="3" />
+                  </svg>
+                </div>
+                <div className="meta-tx">
+                  <div className="title">{t.title}</div>
+                  <div className="desc">{t.desc}</div>
+                </div>
+                {!t.builtIn ? (
+                  <button
+                    type="button"
+                    className="track-delete"
+                    aria-label="remove from library"
+                    title="remove from library"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void onDeleteLocalTrack(t.id);
+                    }}
+                  >
+                    ×
+                  </button>
+                ) : null}
+              </div>
+            ))
+          )}
         </div>
         <div className="volume-row">
           <svg
