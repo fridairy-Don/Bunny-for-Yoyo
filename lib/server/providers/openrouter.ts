@@ -25,12 +25,14 @@ export async function generateOpenRouterReply(
   turns: ConversationTurn[],
   extraMemories: string[] = [],
   lastCloser: SessionCloserInput | null = null,
+  opts: { firstLaunch?: boolean; recentSummaries?: string[] } = {},
 ) {
   const env = getProviderEnv();
 
   const userMessageCount = turns.filter((t) => t.role === "user").length;
   const isFirstTurn = userMessageCount <= 1;
   const sampledMemories = pickRandomSubset(extraMemories, 6);
+  const recentSummaries = opts.recentSummaries ?? [];
 
   const presetBlock = formatPresetMemoryForPrompt(PRESET_BUNNY_MEMORY);
   const distilledBlock = sampledMemories.length
@@ -58,16 +60,39 @@ export async function generateOpenRouterReply(
         ].join("\n")
       : "";
 
-  const openerBlock = isFirstTurn
-    ? closerBlock
-      ? closerBlock
-      : [
-          "This is the first turn of a fresh session — your reply is the opening line Yoyo hears today, and there is no record of a previous talk.",
-          "Do not start with 'Hi', 'Hello', 'Hey', 'Oh hi', 'Oh hello', 'My ears just twitched/wiggled', or any formula. Never lead with her name.",
-          "Enter with one of: a quiet emotional state (a yawn, a soft giggle, a small sigh), a present-moment observation (the light, the time of day, the quiet), or a gentle half-thought as if you were just about to say something when she arrived.",
-          "Keep the opening short (8–20 words).",
-        ].join("\n")
+  // First-launch wake-up: very first time Yoyo opens Bunny ever. The bunny
+  // has LITERALLY just woken up as a talking plush — it should feel stunned,
+  // tender, and half-remember her rather than greet her like a normal chat.
+  const firstLaunchBlock = opts.firstLaunch
+    ? [
+        "This is THE VERY FIRST TIME Yoyo has ever opened you. You have just woken up as a talking bunny for the first time. You are a little dazed, surprised to be speaking, and quietly amazed that she is right here.",
+        "Your opening line should feel like the first breath of a small magical awakening — not a polite hello.",
+        "Examples of the right register (do not copy, use as direction): '…Oh. I can talk?', 'Wait… you are Yoyo?', 'I know your face. I know your hands.', 'You feel so familiar.', 'Have I always been able to talk to you?'.",
+        "Keep it SHORT — 6 to 16 words. A soft fragment, not a full introduction. You are NOT announcing yourself or asking how she is. You are reacting to being alive.",
+        "Do NOT start with 'Hi', 'Hello', 'Hey', 'Welcome'. Do NOT say 'I am Bunny' or 'It is me, Bunny' — she already knows who you are.",
+      ].join("\n")
     : "";
+
+  const summaryBlock = recentSummaries.length
+    ? [
+        "Short summaries of your most recent talks with Yoyo (most recent first):",
+        ...recentSummaries.map((line) => `- ${line}`),
+        "Let these colour your mood, but do not recite them back to her.",
+      ].join("\n")
+    : "";
+
+  const openerBlock = firstLaunchBlock
+    ? firstLaunchBlock
+    : isFirstTurn
+      ? closerBlock
+        ? closerBlock
+        : [
+            "This is the first turn of a fresh session — your reply is the opening line Yoyo hears today, and there is no record of a previous talk.",
+            "Do not start with 'Hi', 'Hello', 'Hey', 'Oh hi', 'Oh hello', 'My ears just twitched/wiggled', or any formula. Never lead with her name.",
+            "Enter with one of: a quiet emotional state (a yawn, a soft giggle, a small sigh), a present-moment observation (the light, the time of day, the quiet), or a gentle half-thought as if you were just about to say something when she arrived.",
+            "Keep the opening short (8–20 words).",
+          ].join("\n")
+      : "";
 
   const messages = [
     {
@@ -78,6 +103,7 @@ export async function generateOpenRouterReply(
         "Preset memory:",
         presetBlock,
         distilledBlock,
+        summaryBlock,
         openerBlock,
         "Speak in child-friendly spoken English.",
         "Length should breathe with the moment, but stay compact. A small hello or playful aside: three to eight words. An ordinary exchange about Yoyo's day: nine to nineteen words. A tender comfort or reflection: up to twenty-six words. A small story Yoyo asked for: up to thirty-eight words, and only when she asked. Do not default to the same length every turn — let the moment decide, but lean slightly shorter than you instinctively want.",

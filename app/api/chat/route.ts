@@ -12,6 +12,8 @@ type ChatBody = {
     endedAt?: number;
     turns?: Array<{ role: "user" | "assistant"; text: string }>;
   } | null;
+  firstLaunch?: boolean;
+  recentSummaries?: string[];
 };
 
 export async function POST(request: Request) {
@@ -19,6 +21,10 @@ export async function POST(request: Request) {
   const turns = body.turns ?? [];
   const memories = Array.isArray(body.memories) ? body.memories.filter((m) => typeof m === "string") : [];
   const lastCloser = body.lastCloser ?? null;
+  const firstLaunch = Boolean(body.firstLaunch);
+  const recentSummaries = Array.isArray(body.recentSummaries)
+    ? body.recentSummaries.filter((s) => typeof s === "string")
+    : [];
   const env = getProviderEnv();
 
   if (!Array.isArray(turns)) {
@@ -27,13 +33,18 @@ export async function POST(request: Request) {
 
   if (!hasOpenRouterConfig(env)) {
     return Response.json({
-      text: getMockReply(turns),
+      text: firstLaunch
+        ? "…Oh. I can talk? Yoyo… is that really you?"
+        : getMockReply(turns),
       mode: "mock",
     });
   }
 
   try {
-    const text = await generateOpenRouterReply(turns, memories, lastCloser);
+    const text = await generateOpenRouterReply(turns, memories, lastCloser, {
+      firstLaunch,
+      recentSummaries,
+    });
 
     return Response.json({
       text,

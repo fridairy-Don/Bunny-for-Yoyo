@@ -27,6 +27,7 @@ type LastCloserPayload = {
 type ConversationOptions = {
   getMemories?: () => string[];
   getLastCloser?: () => LastCloserPayload;
+  getRecentSummaries?: () => string[];
 };
 
 const createTurn = (role: ConversationTurn["role"], text: string): ConversationTurn => ({
@@ -98,7 +99,50 @@ export function useBunnyConversation(
       const history = [...turnsRef.current, userTurn];
       const memories = options.getMemories?.() ?? [];
       const lastCloser = options.getLastCloser?.() ?? null;
-      const reply = await llmClientRef.current.generateReply(history, memories, lastCloser);
+      const recentSummaries = options.getRecentSummaries?.() ?? [];
+      const reply = await llmClientRef.current.generateReply(history, memories, lastCloser, {
+        recentSummaries,
+      });
+      const assistantTurn = createTurn("assistant", reply.text);
+
+      setTurns((current) => [...current, assistantTurn]);
+      setSubtitle({ id: assistantTurn.id, text: assistantTurn.text, role: "assistant" });
+
+      setStatus("speaking");
+      controller.startSpeaking();
+      setActiveWordIndex(-1);
+      await speechPlayerRef.current.speak(reply.text, {
+        onWordChange: (idx) => setActiveWordIndex(idx),
+      });
+      setActiveWordIndex(-1);
+      controller.returnToIdle();
+      controller.showMomentaryReaction("happy", 760);
+      setStatus("idle");
+    } catch (cause) {
+      speechPlayerRef.current.stop();
+      controller.returnToIdle();
+      setStatus("error");
+      setActiveWordIndex(-1);
+      setError(getAudioErrorMessage(cause));
+      setSubtitle(null);
+    }
+  };
+
+  // Auto-opener: used for first_launch wake-up drama. Skips the mic/STT path
+  // entirely — Bunny speaks first, without waiting for Yoyo to tap mic.
+  // Safe to call only from idle. No-op if we're already busy.
+  const triggerAutoOpener = async (options2: { firstLaunch?: boolean } = {}) => {
+    if (status !== "idle") return;
+    setError(null);
+    try {
+      setStatus("thinking");
+      const memories = options.getMemories?.() ?? [];
+      const lastCloser = options.getLastCloser?.() ?? null;
+      const recentSummaries = options.getRecentSummaries?.() ?? [];
+      const reply = await llmClientRef.current.generateReply([], memories, lastCloser, {
+        firstLaunch: options2.firstLaunch ?? false,
+        recentSummaries,
+      });
       const assistantTurn = createTurn("assistant", reply.text);
 
       setTurns((current) => [...current, assistantTurn]);
@@ -147,6 +191,7 @@ export function useBunnyConversation(
     handleMicClick,
     clearTurns,
     activeWordIndex,
+    triggerAutoOpener,
   };
 }
 

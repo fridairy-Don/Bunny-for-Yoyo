@@ -63,6 +63,8 @@ export default function Home() {
   const memoriesRef = useRef<DistilledMemory[]>([]);
   const lastCloserRef = useRef<SessionCloser | null>(null);
 
+  const recentSummariesRef = useRef<string[]>([]);
+
   const conversation = useBunnyConversation(
     {
       beginListening: companion.beginListening,
@@ -73,12 +75,21 @@ export default function Home() {
     {
       getMemories: () => memoriesRef.current.map((m) => m.content),
       getLastCloser: () => lastCloserRef.current,
+      getRecentSummaries: () => recentSummariesRef.current,
     },
   );
 
   const { bunnyImage, isListening, handleBunnyPress } = companion;
-  const { status, subtitle, turns, error, handleMicClick, clearTurns, activeWordIndex } =
-    conversation;
+  const {
+    status,
+    subtitle,
+    turns,
+    error,
+    handleMicClick,
+    clearTurns,
+    activeWordIndex,
+    triggerAutoOpener,
+  } = conversation;
 
   const [asleep, setAsleep] = useState(false);
   const [openDrawer, setOpenDrawer] = useState<"music" | "memory" | null>(null);
@@ -126,35 +137,74 @@ export default function Home() {
     };
   }, []);
 
-  // mount-only: optional ?wipe=1 reset + load persisted memories
+  // mount-only: optional ?wipe=1 reset + load persisted memories + first-launch drama
   useEffect(() => {
     let cancelled = false;
 
     // Parent / test reset: navigating with ?wipe=1 clears all bunny storage.
-    if (typeof window !== "undefined" && window.location.search.includes("wipe=1")) {
-      void wipeAllMemory().then(() => {
-        if (cancelled) return;
-        const url = new URL(window.location.href);
-        url.searchParams.delete("wipe");
-        window.history.replaceState(
-          {},
-          "",
-          url.pathname + (url.search ? "?" + url.searchParams.toString() : ""),
-        );
-        setShowWipeBanner(true);
-        window.setTimeout(() => setShowWipeBanner(false), 2800);
-      });
-    }
+    const doWipe =
+      typeof window !== "undefined" && window.location.search.includes("wipe=1");
+    const wipePromise = doWipe
+      ? wipeAllMemory().then(() => {
+          if (cancelled) return;
+          const url = new URL(window.location.href);
+          url.searchParams.delete("wipe");
+          window.history.replaceState(
+            {},
+            "",
+            url.pathname + (url.search ? "?" + url.searchParams.toString() : ""),
+          );
+          // Wiping also clears the first-launch done flag so the wake-up
+          // drama plays again — useful for testing and for handing a fresh
+          // Bunny to Yoyo.
+          try {
+            window.localStorage.removeItem("bunny:first_launch_done");
+          } catch {
+            // quota / privacy mode
+          }
+          setShowWipeBanner(true);
+          window.setTimeout(() => setShowWipeBanner(false), 2800);
+        })
+      : Promise.resolve();
 
-    void getDistilledMemories()
+    void wipePromise
+      .then(() => getDistilledMemories())
       .then((list) => {
-        if (!cancelled) setMemories(list);
+        if (cancelled) return;
+        setMemories(list);
+        // First-launch detection: nothing persisted AND flag not set.
+        // Runs after wipe so `?wipe=1` correctly retriggers the drama.
+        const alreadyWoken =
+          typeof window !== "undefined"
+            ? window.localStorage.getItem("bunny:first_launch_done")
+            : "1";
+        if (!alreadyWoken && list.length === 0 && lastCloserRef.current === null) {
+          // Pause ~1.5s so Yoyo has a beat to look at Bunny before it stirs.
+          window.setTimeout(() => {
+            if (cancelled) return;
+            void triggerAutoOpener({ firstLaunch: true })
+              .catch(() => undefined)
+              .finally(() => {
+                try {
+                  window.localStorage.setItem(
+                    "bunny:first_launch_done",
+                    String(Date.now()),
+                  );
+                } catch {
+                  // quota / privacy mode
+                }
+              });
+          }, 1500);
+        }
       })
       .catch(() => undefined);
 
     return () => {
       cancelled = true;
     };
+    // triggerAutoOpener identity is stable per hook instance; omitting it
+    // from deps avoids re-running this mount-only effect on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
 
@@ -270,6 +320,15 @@ export default function Home() {
       await wipeAllMemory();
     } catch (err) {
       console.warn("[bunny] wipe failed:", err);
+    }
+    try {
+      // Replaying the first-launch drama is part of "fresh start" — without
+      // this clear, a parent resetting Bunny for a new child would still
+      // miss the wake-up moment next load.
+      window.localStorage.removeItem("bunny:first_launch_done");
+      window.localStorage.removeItem("bunny:first_seen");
+    } catch {
+      // quota / privacy mode
     }
     setMemories([]);
     lastCloserRef.current = null;
