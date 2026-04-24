@@ -1,0 +1,506 @@
+@import "tailwindcss";
+
+:root {
+  --background: #fff8ef;
+  --foreground: #43352a;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+button {
+  font: inherit;
+}
+
+.bunny-stage {
+  animation: bunny-float 5.8s ease-in-out infinite;
+}
+
+.bunny-sprite {
+  animation: bunny-breathe 4.8s ease-in-out infinite;
+  transform-origin: 50% 76%;
+}
+
+.is-listening-scene::before {
+  content: "";
+  position: absolute;
+  inset: 18% 23% 9%;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 40%, rgba(255, 231, 154, 0.2), transparent 26%),
+    radial-gradient(circle at 42% 66%, rgba(255, 175, 204, 0.18), transparent 24%),
+    radial-gradient(circle at 59% 68%, rgba(166, 226, 255, 0.18), transparent 25%);
+  filter: blur(18px);
+  animation: listening-scene-glow 2.4s ease-in-out infinite;
+}
+
+@keyframes bunny-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes bunny-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.018);
+  }
+}
+
+.magic-mic-button {
+  position: relative;
+  display: flex;
+  width: 5.5rem;
+  height: 5.5rem;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  cursor: pointer;
+  color: #765342;
+  border: 1px solid rgba(255, 255, 255, 0.92);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.98) 0 18%, transparent 19%),
+    radial-gradient(circle at 64% 74%, rgba(255, 220, 132, 0.58) 0 18%, transparent 19%),
+    linear-gradient(145deg, #fff9ef 0%, #ffe3ef 42%, #dff6ff 100%);
+  box-shadow:
+    0 1.4rem 2.8rem rgba(139, 91, 61, 0.16),
+    inset 0 0.45rem 0.9rem rgba(255, 255, 255, 0.8),
+    inset 0 -0.45rem 0.9rem rgba(221, 146, 164, 0.18);
+  transition:
+    scale 180ms ease,
+    box-shadow 180ms ease,
+    filter 180ms ease;
+  touch-action: manipulation;
+}
+
+.magic-mic-button::before {
+  content: "";
+  position: absolute;
+  inset: -0.55rem;
+  z-index: -1;
+  border-radius: inherit;
+  background: conic-gradient(from 120deg, rgba(255, 211, 112, 0.5), rgba(255, 174, 202, 0.48), rgba(170, 225, 255, 0.5), rgba(255, 211, 112, 0.5));
+  filter: blur(16px);
+  opacity: 0.72;
+}
+
+.magic-mic-button::after {
+  content: "";
+  position: absolute;
+  inset: 0.45rem;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.74);
+  pointer-events: none;
+}
+
+.magic-mic-button:hover {
+  filter: saturate(1.04) brightness(1.02);
+  scale: 1.035;
+}
+
+.magic-mic-button:active {
+  scale: 0.97;
+}
+
+.magic-mic-button:focus-visible {
+  outline: 2px solid #d58f66;
+  outline-offset: 0.35rem;
+}
+
+.magic-mic-button.is-listening {
+  animation: magic-mic-listening 1.28s ease-in-out infinite;
+  box-shadow:
+    0 1.5rem 3rem rgba(190, 105, 72, 0.2),
+    0 0 0 0 rgba(255, 190, 150, 0.3),
+    inset 0 0.45rem 0.9rem rgba(255, 255, 255, 0.82),
+    inset 0 -0.45rem 0.9rem rgba(221, 146, 164, 0.2);
+}
+
+.magic-mic-button.is-listening::before {
+  opacity: 1;
+  animation: magic-aura-spin 4.5s linear infinite;
+}
+
+.magic-wave {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: -1;
+  width: var(--wave-size);
+  height: var(--wave-size);
+  border-radius: 46% 54% 48% 52% / 52% 44% 56% 48%;
+  background: var(--wave-fill);
+  filter: blur(var(--wave-blur));
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0.58) rotate(0deg);
+  transform-origin: center;
+  will-change: transform, opacity, border-radius;
+}
+
+.magic-mic-button.is-listening .magic-wave {
+  animation: magic-filled-wave var(--wave-duration) ease-in-out infinite;
+}
+
+.magic-wave-one {
+  --wave-size: 8.2rem;
+  --wave-duration: 1.72s;
+  --wave-delay: 0s;
+  --wave-scale: 1.62;
+  --wave-opacity: 0.82;
+  --wave-blur: 0.1rem;
+  --wave-drift-x: -0.42rem;
+  --wave-drift-y: -0.35rem;
+  --wave-rotate: 24deg;
+  --wave-fill: radial-gradient(circle at 60% 42%, rgba(255, 222, 116, 0.72), rgba(255, 139, 170, 0.42) 42%, rgba(255, 139, 170, 0) 72%);
+}
+
+.magic-wave-two {
+  --wave-size: 10.8rem;
+  --wave-duration: 2.08s;
+  --wave-delay: 0.18s;
+  --wave-scale: 1.68;
+  --wave-opacity: 0.62;
+  --wave-blur: 0.18rem;
+  --wave-drift-x: 0.52rem;
+  --wave-drift-y: -0.58rem;
+  --wave-rotate: -32deg;
+  --wave-fill: radial-gradient(circle at 44% 56%, rgba(255, 183, 108, 0.52), rgba(240, 111, 164, 0.36) 45%, rgba(240, 111, 164, 0) 73%);
+}
+
+.magic-wave-three {
+  --wave-size: 13.4rem;
+  --wave-duration: 2.42s;
+  --wave-delay: 0.38s;
+  --wave-scale: 1.64;
+  --wave-opacity: 0.44;
+  --wave-blur: 0.24rem;
+  --wave-drift-x: -0.28rem;
+  --wave-drift-y: -0.88rem;
+  --wave-rotate: 42deg;
+  --wave-fill: radial-gradient(circle at 58% 45%, rgba(255, 211, 104, 0.34), rgba(217, 92, 159, 0.3) 47%, rgba(217, 92, 159, 0) 74%);
+}
+
+.magic-wave-four {
+  --wave-size: 16.5rem;
+  --wave-duration: 2.85s;
+  --wave-delay: 0.66s;
+  --wave-scale: 1.56;
+  --wave-opacity: 0.31;
+  --wave-blur: 0.32rem;
+  --wave-drift-x: 0.46rem;
+  --wave-drift-y: -0.68rem;
+  --wave-rotate: -54deg;
+  --wave-fill: radial-gradient(circle at 48% 52%, rgba(255, 188, 108, 0.28), rgba(190, 82, 150, 0.26) 49%, rgba(190, 82, 150, 0) 76%);
+}
+
+.magic-wave-five {
+  --wave-size: 19.5rem;
+  --wave-duration: 3.3s;
+  --wave-delay: 0.92s;
+  --wave-scale: 1.48;
+  --wave-opacity: 0.22;
+  --wave-blur: 0.44rem;
+  --wave-drift-x: -0.7rem;
+  --wave-drift-y: -1.1rem;
+  --wave-rotate: 68deg;
+  --wave-fill: radial-gradient(circle at 54% 50%, rgba(255, 222, 146, 0.2), rgba(146, 65, 132, 0.22) 52%, rgba(146, 65, 132, 0) 78%);
+}
+
+.magic-mic-button.is-listening .magic-wave-one,
+.magic-mic-button.is-listening .magic-wave-three,
+.magic-mic-button.is-listening .magic-wave-five {
+  animation-name: magic-filled-wave, magic-wave-shimmer;
+  animation-duration: var(--wave-duration), 1.25s;
+  animation-timing-function: ease-in-out, ease-in-out;
+  animation-iteration-count: infinite, infinite;
+  animation-delay: var(--wave-delay), calc(var(--wave-delay) / 2);
+}
+
+.magic-mic-button.is-listening .magic-wave-two,
+.magic-mic-button.is-listening .magic-wave-four {
+  animation-name: magic-filled-wave-alt, magic-wave-shimmer;
+  animation-duration: var(--wave-duration), 1.45s;
+  animation-timing-function: ease-in-out, ease-in-out;
+  animation-iteration-count: infinite, infinite;
+  animation-delay: var(--wave-delay), calc(var(--wave-delay) / 2);
+}
+
+.magic-orbit {
+  position: absolute;
+  inset: -0.95rem;
+  z-index: 1;
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.magic-orbit::before {
+  content: "";
+  position: absolute;
+  top: 0.1rem;
+  left: 50%;
+  width: 0.46rem;
+  height: 0.46rem;
+  border-radius: 999px;
+  background: #ffd56f;
+  box-shadow: 0 0 1.15rem rgba(255, 213, 111, 0.95);
+}
+
+.magic-orbit-two::before {
+  top: auto;
+  bottom: 0.15rem;
+  background: #9adcf7;
+  box-shadow: 0 0 1.15rem rgba(154, 220, 247, 0.9);
+}
+
+.magic-mic-button.is-listening .magic-orbit-one {
+  opacity: 1;
+  animation: magic-orbit 2.4s linear infinite;
+}
+
+.magic-mic-button.is-listening .magic-orbit-two {
+  opacity: 1;
+  animation: magic-orbit 3.2s linear infinite reverse;
+}
+
+.magic-sparkle {
+  position: absolute;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: #ffd56f;
+  box-shadow: 0 0 1rem rgba(255, 213, 111, 0.85);
+  pointer-events: none;
+}
+
+.magic-sparkle::before,
+.magic-sparkle::after {
+  content: "";
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 1.15rem;
+  height: 0.12rem;
+  border-radius: 999px;
+  background: currentColor;
+  color: inherit;
+  transform: translate(-50%, -50%);
+}
+
+.magic-sparkle::after {
+  transform: translate(-50%, -50%) rotate(90deg);
+}
+
+.magic-sparkle-one {
+  top: 0.35rem;
+  right: 0.55rem;
+  color: #ffd56f;
+}
+
+.magic-sparkle-two {
+  bottom: 0.8rem;
+  left: 0.35rem;
+  width: 0.42rem;
+  height: 0.42rem;
+  color: #f8aeca;
+  background: #f8aeca;
+  box-shadow: 0 0 0.8rem rgba(248, 174, 202, 0.82);
+}
+
+.magic-sparkle-three {
+  top: 1.15rem;
+  left: -0.1rem;
+  width: 0.35rem;
+  height: 0.35rem;
+  color: #9adcf7;
+  background: #9adcf7;
+  box-shadow: 0 0 0.8rem rgba(154, 220, 247, 0.78);
+}
+
+.magic-sparkle-four {
+  right: -0.15rem;
+  bottom: 1.55rem;
+  width: 0.38rem;
+  height: 0.38rem;
+  color: #bfa3ff;
+  background: #bfa3ff;
+  box-shadow: 0 0 0.85rem rgba(191, 163, 255, 0.74);
+}
+
+.magic-mic-button.is-listening .magic-sparkle {
+  animation: sparkle-twinkle 1.1s ease-in-out infinite;
+}
+
+.magic-mic-button.is-listening .magic-sparkle-two {
+  animation-delay: 180ms;
+}
+
+.magic-mic-button.is-listening .magic-sparkle-three {
+  animation-delay: 320ms;
+}
+
+.magic-mic-button.is-listening .magic-sparkle-four {
+  animation-delay: 480ms;
+}
+
+@keyframes listening-scene-glow {
+  0%,
+  100% {
+    opacity: 0.58;
+    transform: scale(0.98);
+  }
+
+  50% {
+    opacity: 0.95;
+    transform: scale(1.035);
+  }
+}
+
+@keyframes magic-mic-listening {
+  0%,
+  100% {
+    scale: 1;
+    box-shadow:
+      0 1.5rem 3rem rgba(190, 105, 72, 0.2),
+      0 0 0 0 rgba(255, 190, 150, 0.3),
+      inset 0 0.45rem 0.9rem rgba(255, 255, 255, 0.82),
+      inset 0 -0.45rem 0.9rem rgba(221, 146, 164, 0.2);
+  }
+
+  50% {
+    scale: 1.045;
+    box-shadow:
+      0 1.7rem 3.2rem rgba(190, 105, 72, 0.24),
+      0 0 0 0.85rem rgba(255, 190, 150, 0),
+      inset 0 0.45rem 0.9rem rgba(255, 255, 255, 0.88),
+      inset 0 -0.45rem 0.9rem rgba(221, 146, 164, 0.18);
+  }
+}
+
+@keyframes magic-aura-spin {
+  from {
+    rotate: 0deg;
+  }
+
+  to {
+    rotate: 360deg;
+  }
+}
+
+@keyframes magic-filled-wave {
+  0% {
+    opacity: 0;
+    border-radius: 48% 52% 46% 54% / 52% 44% 56% 48%;
+    transform: translate(-50%, -50%) scale(0.5) rotate(0deg);
+  }
+
+  18% {
+    opacity: var(--wave-opacity);
+  }
+
+  48% {
+    opacity: calc(var(--wave-opacity) * 0.72);
+    border-radius: 56% 44% 58% 42% / 46% 58% 42% 54%;
+  }
+
+  76% {
+    opacity: calc(var(--wave-opacity) * 0.22);
+  }
+
+  100% {
+    opacity: 0;
+    border-radius: 42% 58% 49% 51% / 58% 42% 54% 46%;
+    transform: translate(calc(-50% + var(--wave-drift-x)), calc(-50% + var(--wave-drift-y))) scale(var(--wave-scale)) rotate(var(--wave-rotate));
+  }
+}
+
+@keyframes magic-filled-wave-alt {
+  0% {
+    opacity: 0;
+    border-radius: 54% 46% 51% 49% / 44% 56% 47% 53%;
+    transform: translate(-50%, -50%) scale(0.54) rotate(0deg);
+  }
+
+  22% {
+    opacity: var(--wave-opacity);
+  }
+
+  52% {
+    opacity: calc(var(--wave-opacity) * 0.64);
+    border-radius: 43% 57% 40% 60% / 60% 42% 58% 40%;
+  }
+
+  80% {
+    opacity: calc(var(--wave-opacity) * 0.18);
+  }
+
+  100% {
+    opacity: 0;
+    border-radius: 60% 40% 52% 48% / 48% 62% 38% 52%;
+    transform: translate(calc(-50% + var(--wave-drift-x)), calc(-50% + var(--wave-drift-y))) scale(var(--wave-scale)) rotate(var(--wave-rotate));
+  }
+}
+
+@keyframes magic-wave-shimmer {
+  0%,
+  100% {
+    filter: blur(var(--wave-blur)) brightness(0.94) saturate(1.02);
+  }
+
+  45% {
+    filter: blur(calc(var(--wave-blur) + 0.08rem)) brightness(1.18) saturate(1.16);
+  }
+}
+
+@keyframes magic-orbit {
+  from {
+    rotate: 0deg;
+  }
+
+  to {
+    rotate: 360deg;
+  }
+}
+
+@keyframes sparkle-twinkle {
+  0%,
+  100% {
+    opacity: 0.7;
+    scale: 0.9;
+  }
+
+  50% {
+    opacity: 1;
+    scale: 1.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
