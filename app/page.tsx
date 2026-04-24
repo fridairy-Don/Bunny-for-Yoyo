@@ -99,6 +99,10 @@ export default function Home() {
   const [memories, setMemories] = useState<DistilledMemory[]>([]);
   const [memoryDetail, setMemoryDetail] = useState<DistilledMemory | null>(null);
   const [memoryDetailSession, setMemoryDetailSession] = useState<DailySession | null>(null);
+  // Bumped whenever a new session is archived so the polaroid wall
+  // inside the memory drawer re-fetches without subscribing to the
+  // session-save flow directly.
+  const [wallRefreshKey, setWallRefreshKey] = useState(0);
   const music = useMusicPlayer(0.2);
   const [resetConfirming, setResetConfirming] = useState(false);
   const [memConfirmId, setMemConfirmId] = useState<string | null>(null);
@@ -116,12 +120,18 @@ export default function Home() {
   const sessionSave = useSessionSave({
     getTurns: () => turns,
     getExistingMemories: () => memoriesRef.current.map((m) => m.content),
-    onAccepted: (accepted) => setMemories((current) => [...accepted, ...current]),
+    onAccepted: (accepted) => {
+      setMemories((current) => [...accepted, ...current]);
+      // A fresh session just landed — nudge the polaroid wall to refetch.
+      setWallRefreshKey((k) => k + 1);
+    },
     onCloserUpdated: (closer) => {
       lastCloserRef.current = closer;
     },
     onSummariesUpdated: (summaries) => {
       recentSummariesRef.current = summaries;
+      // Summary arrived — refetch so the polaroid caption updates.
+      setWallRefreshKey((k) => k + 1);
     },
   });
 
@@ -416,6 +426,7 @@ export default function Home() {
         memoryDetailSession={memoryDetailSession}
         memConfirmId={memConfirmId}
         resetConfirming={resetConfirming}
+        wallRefreshKey={wallRefreshKey}
         onClose={() => setOpenDrawer(null)}
         onOpenDetail={openMemoryDetail}
         onCloseDetail={closeMemoryDetail}

@@ -1,9 +1,12 @@
 "use client";
 
+import { useState } from "react";
+
 import type { DailySession, DistilledMemory } from "../../lib/memory/session-store";
 import { CloseIcon } from "../icons";
 import { MemoryDetailView } from "../memory/memory-detail";
 import { ParentTools } from "../memory/parent-tools";
+import { PolaroidWall } from "../memory/polaroid-wall";
 
 export type MemoryGroup = {
   dateKey: string;
@@ -19,6 +22,9 @@ type Props = {
   memoryDetailSession: DailySession | null;
   memConfirmId: string | null;
   resetConfirming: boolean;
+  // Increments whenever save-to-memory lands a new session so the wall
+  // can refetch without having to subscribe to the conversation hook.
+  wallRefreshKey: number;
   onClose: () => void;
   onOpenDetail: (mem: DistilledMemory) => void;
   onCloseDetail: () => void;
@@ -37,6 +43,7 @@ export function MemoryDrawer({
   memoryDetailSession,
   memConfirmId,
   resetConfirming,
+  wallRefreshKey,
   onClose,
   onOpenDetail,
   onCloseDetail,
@@ -46,6 +53,7 @@ export function MemoryDrawer({
   onCancelReset,
   onConfirmReset,
 }: Props) {
+  const [view, setView] = useState<"wall" | "list">("wall");
   return (
     <div className={`drawer ${open ? "show" : ""}`}>
       <div className="drawer-head">
@@ -73,7 +81,30 @@ export function MemoryDrawer({
           />
         ) : (
           <>
-            {memories.length === 0 ? (
+            <div className="memory-view-tabs">
+              <button
+                type="button"
+                className={`memory-view-tab ${view === "wall" ? "active" : ""}`}
+                onClick={() => setView("wall")}
+              >
+                wall
+              </button>
+              <button
+                type="button"
+                className={`memory-view-tab ${view === "list" ? "active" : ""}`}
+                onClick={() => setView("list")}
+              >
+                list
+              </button>
+            </div>
+
+            {view === "wall" ? (
+              <PolaroidWall
+                memories={memories}
+                onOpenMemory={onOpenDetail}
+                refreshKey={wallRefreshKey}
+              />
+            ) : memories.length === 0 ? (
               <div className="mem-empty">
                 nothing saved yet.
                 <br />

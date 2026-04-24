@@ -1507,6 +1507,222 @@ body.sleeping .mic {
   }
 }
 
+/* ─── memory drawer view toggle ─────────────────────────────────────── */
+.memory-view-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 3px;
+  background: oklch(0.94 0.02 50);
+  border-radius: 999px;
+  width: fit-content;
+  margin-left: auto;
+  margin-right: auto;
+}
+.memory-view-tab {
+  all: unset;
+  cursor: pointer;
+  padding: 5px 16px;
+  border-radius: 999px;
+  font-family: "Quicksand", sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: oklch(0.5 0.03 40);
+  transition: background 0.18s ease, color 0.18s ease;
+}
+.memory-view-tab.active {
+  background: oklch(0.99 0.01 70);
+  color: var(--rose, #b56a5a);
+  box-shadow: 0 1px 3px oklch(0.4 0.04 30 / 0.12);
+}
+
+/* ─── polaroid memory wall ─────────────────────────────────────────── */
+.polaroid-wall {
+  position: relative;
+  background-image:
+    radial-gradient(circle at 20% 25%, oklch(0.88 0.03 55 / 0.55) 0, transparent 45%),
+    radial-gradient(circle at 80% 75%, oklch(0.86 0.04 45 / 0.45) 0, transparent 40%),
+    linear-gradient(180deg, oklch(0.93 0.03 70), oklch(0.9 0.04 65));
+  padding: 18px 10px 24px;
+  border-radius: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 16px 10px;
+  min-height: 220px;
+}
+.polaroid {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  background: oklch(0.995 0.002 80);
+  padding: 8px 8px 10px;
+  border-radius: 4px;
+  box-shadow: 0 6px 14px oklch(0.3 0.04 30 / 0.22),
+    0 2px 4px oklch(0.3 0.04 30 / 0.12);
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+  position: relative;
+  font-family: "Fraunces", serif;
+}
+.polaroid:hover {
+  transform: rotate(0deg) translateY(-2px) !important;
+  box-shadow: 0 10px 20px oklch(0.3 0.04 30 / 0.28),
+    0 3px 6px oklch(0.3 0.04 30 / 0.16);
+}
+.polaroid-pin {
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: oklch(0.55 0.15 25);
+  box-shadow: 0 1px 2px oklch(0.2 0.02 30 / 0.4),
+    inset -1px -1px 2px oklch(0.3 0.1 25 / 0.5);
+}
+.polaroid-photo {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  background: oklch(0.92 0.03 70);
+  border-radius: 2px;
+  margin-bottom: 6px;
+  position: relative;
+  overflow: hidden;
+}
+.polaroid-photo-bg {
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(circle at 30% 30%, oklch(0.98 0.03 80) 0, transparent 50%),
+    radial-gradient(circle at 70% 65%, oklch(0.94 0.05 55) 0, transparent 55%),
+    linear-gradient(135deg, oklch(0.94 0.03 70), oklch(0.88 0.05 40));
+}
+.polaroid-photo-emoji {
+  position: relative;
+  z-index: 1;
+  font-size: 32px;
+  color: oklch(0.98 0.01 70);
+  text-shadow: 0 1px 4px oklch(0.3 0.05 30 / 0.4);
+  font-family: serif;
+}
+.polaroid-caption {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 4px 4px;
+}
+.polaroid-caption-date {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: oklch(0.55 0.04 35);
+  font-family: "Quicksand", sans-serif;
+  font-weight: 600;
+}
+.polaroid-caption-text {
+  font-size: 12px;
+  font-style: italic;
+  color: oklch(0.35 0.04 30);
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.polaroid-empty {
+  padding: 40px 20px;
+  text-align: center;
+  font-family: "Fraunces", serif;
+  font-style: italic;
+  color: oklch(0.55 0.03 40);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.polaroid-detail {
+  padding: 4px 2px 20px;
+}
+.polaroid-detail .back {
+  background: none;
+  border: none;
+  color: var(--rose, #b56a5a);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 0;
+  margin-bottom: 12px;
+  font-family: "Quicksand", sans-serif;
+}
+.polaroid-detail-head {
+  background: oklch(0.98 0.01 70);
+  padding: 14px 16px;
+  border-radius: 10px;
+  margin-bottom: 14px;
+}
+.polaroid-detail-head .date {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--rose, #b56a5a);
+  font-family: "Quicksand", sans-serif;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.polaroid-detail-head .phrase {
+  font-family: "Fraunces", serif;
+  font-style: italic;
+  font-size: 14px;
+  color: oklch(0.3 0.04 30);
+  line-height: 1.5;
+}
+.polaroid-detail-head .phrase.muted {
+  color: oklch(0.55 0.02 40);
+  font-style: italic;
+}
+.polaroid-detail-memories {
+  margin-bottom: 14px;
+}
+.polaroid-detail-memories-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: oklch(0.5 0.02 40);
+  font-family: "Quicksand", sans-serif;
+  margin-bottom: 6px;
+}
+.polaroid-linked-mem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: oklch(0.97 0.02 70);
+  border: 1px solid oklch(0.92 0.02 40);
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  color: oklch(0.3 0.04 30);
+  transition: background 0.15s ease;
+}
+.polaroid-linked-mem:hover {
+  background: oklch(0.94 0.03 60);
+}
+.polaroid-linked-mem .pin {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--rose, #b56a5a);
+}
+.polaroid-detail-transcript {
+  padding: 6px 0;
+}
+
 /* ─── parent-only pages (setup + dashboard) ──────────────────────────── */
 /* Deliberately utilitarian — this area is not for the child. */
 .parent-shell {
