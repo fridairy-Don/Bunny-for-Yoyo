@@ -19,6 +19,16 @@ type BunnyController = {
   showMomentaryReaction: (state: "happy" | "ear_react" | "blink", duration?: number) => void;
 };
 
+type LastCloserPayload = {
+  endedAt?: number;
+  turns?: Array<{ role: "user" | "assistant"; text: string }>;
+} | null;
+
+type ConversationOptions = {
+  getMemories?: () => string[];
+  getLastCloser?: () => LastCloserPayload;
+};
+
 const createTurn = (role: ConversationTurn["role"], text: string): ConversationTurn => ({
   id: `${role}-${crypto.randomUUID()}`,
   role,
@@ -26,7 +36,10 @@ const createTurn = (role: ConversationTurn["role"], text: string): ConversationT
   createdAt: Date.now(),
 });
 
-export function useBunnyConversation(controller: BunnyController) {
+export function useBunnyConversation(
+  controller: BunnyController,
+  options: ConversationOptions = {},
+) {
   const recorderRef = useRef(createAudioRecorder());
   const sttClientRef = useRef(new ApiSpeechToTextClient());
   const llmClientRef = useRef(new ApiLlmClient());
@@ -78,7 +91,9 @@ export function useBunnyConversation(controller: BunnyController) {
 
       setStatus("thinking");
       const history = [...turnsRef.current, userTurn];
-      const reply = await llmClientRef.current.generateReply(history);
+      const memories = options.getMemories?.() ?? [];
+      const lastCloser = options.getLastCloser?.() ?? null;
+      const reply = await llmClientRef.current.generateReply(history, memories, lastCloser);
       const assistantTurn = createTurn("assistant", reply.text);
 
       setTurns((current) => [...current, assistantTurn]);
@@ -99,6 +114,11 @@ export function useBunnyConversation(controller: BunnyController) {
     }
   };
 
+  const clearTurns = () => {
+    setTurns([]);
+    setSubtitle(null);
+  };
+
   const sessionSummary = useMemo(
     () => ({
       characterName,
@@ -115,6 +135,7 @@ export function useBunnyConversation(controller: BunnyController) {
     error,
     sessionSummary,
     handleMicClick,
+    clearTurns,
   };
 }
 

@@ -3,11 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BUNNY_IMAGES,
+  pickClickReaction,
+  randomBlinkDelay,
   type BunnyVisualState,
   type InteractionState,
   type MomentaryState,
-  randomBlinkDelay,
 } from "../config/bunny";
+
+const CLICK_COOLDOWN_MS = 400;
 
 export function useBunnyCompanion() {
   const [bunnyState, setBunnyState] = useState<BunnyVisualState>("idle");
@@ -16,6 +19,7 @@ export function useBunnyCompanion() {
 
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const speakingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const clickCooldownUntilRef = useRef<number>(0);
 
   const clearTimers = () => {
     if (timeoutRef.current) {
@@ -93,8 +97,48 @@ export function useBunnyCompanion() {
     }, duration);
   };
 
-  const triggerEarReact = () => {
-    triggerBunnyReaction("ear_react", 850);
+  // Double-blink: eyes close → open briefly → close again, occasionally a third time.
+  const triggerDoubleBlink = () => {
+    clearTimers();
+    setTalkFrame(false);
+    setBunnyState("blink");
+
+    // first blink → idle → second blink → maybe third → idle
+    timeoutRef.current = setTimeout(() => {
+      setBunnyState("idle");
+      timeoutRef.current = setTimeout(() => {
+        setBunnyState("blink");
+        const thirdRoll = Math.random();
+        timeoutRef.current = setTimeout(() => {
+          if (thirdRoll < 0.2) {
+            setBunnyState("idle");
+            timeoutRef.current = setTimeout(() => {
+              setBunnyState("blink");
+              timeoutRef.current = setTimeout(() => {
+                setBunnyState("idle");
+                timeoutRef.current = null;
+              }, 140);
+            }, 90);
+          } else {
+            setBunnyState("idle");
+            timeoutRef.current = null;
+          }
+        }, 150);
+      }, 90);
+    }, 150);
+  };
+
+  const triggerEarThenHappy = () => {
+    clearTimers();
+    setTalkFrame(false);
+    setBunnyState("ear_react");
+    timeoutRef.current = setTimeout(() => {
+      setBunnyState("happy");
+      timeoutRef.current = setTimeout(() => {
+        setBunnyState("idle");
+        timeoutRef.current = null;
+      }, 650);
+    }, 320);
   };
 
   const handleBunnyPress = () => {
@@ -102,12 +146,38 @@ export function useBunnyCompanion() {
       return;
     }
 
+    // Cool-down: ignore rapid repeated taps so reactions don't stack oddly.
+    const now = Date.now();
+    if (now < clickCooldownUntilRef.current) {
+      return;
+    }
+    clickCooldownUntilRef.current = now + CLICK_COOLDOWN_MS;
+
     if (interactionState === "listening") {
+      // While Yoyo is recording, Bunny holds ear_react ("I'm listening").
       setBunnyState("ear_react");
       return;
     }
 
-    triggerEarReact();
+    const reaction = pickClickReaction();
+    if (reaction === "blink") {
+      triggerDoubleBlink();
+      clickCooldownUntilRef.current = now + 700;
+      return;
+    }
+    if (reaction === "happy") {
+      triggerBunnyReaction("happy", 780);
+      clickCooldownUntilRef.current = now + 900;
+      return;
+    }
+    if (reaction === "ear_then_happy") {
+      triggerEarThenHappy();
+      clickCooldownUntilRef.current = now + 1100;
+      return;
+    }
+    // default: ear_react
+    triggerBunnyReaction("ear_react", 800);
+    clickCooldownUntilRef.current = now + 900;
   };
 
   useEffect(() => {
@@ -116,7 +186,7 @@ export function useBunnyCompanion() {
     }
 
     const blinkTimer = setTimeout(() => {
-      triggerMomentary("blink", 160);
+      triggerDoubleBlink();
     }, randomBlinkDelay());
 
     return () => clearTimeout(blinkTimer);

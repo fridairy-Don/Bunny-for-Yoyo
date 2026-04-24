@@ -1,17 +1,30 @@
 import type { ConversationTurn, LlmReply } from "../types/conversation";
 
+export type LastCloserPayload = {
+  endedAt?: number;
+  turns?: Array<{ role: "user" | "assistant"; text: string }>;
+} | null;
+
 export type LlmClient = {
-  generateReply: (turns: ConversationTurn[]) => Promise<LlmReply>;
+  generateReply: (
+    turns: ConversationTurn[],
+    memories?: string[],
+    lastCloser?: LastCloserPayload,
+  ) => Promise<LlmReply>;
 };
 
 export class ApiLlmClient implements LlmClient {
-  async generateReply(turns: ConversationTurn[]): Promise<LlmReply> {
+  async generateReply(
+    turns: ConversationTurn[],
+    memories: string[] = [],
+    lastCloser: LastCloserPayload = null,
+  ): Promise<LlmReply> {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ turns }),
+      body: JSON.stringify({ turns, memories, lastCloser }),
     });
 
     if (!response.ok) {

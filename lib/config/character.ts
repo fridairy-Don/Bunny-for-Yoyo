@@ -18,14 +18,7 @@ export const FIRST_LAUNCH_LINES = [
   "Have you been with me all this time?",
 ];
 
-export const MOCK_SESSION_TURNS: ConversationTurn[] = [
-  {
-    id: "assistant-welcome",
-    role: "assistant",
-    text: "I'm here with you.",
-    createdAt: Date.now(),
-  },
-];
+export const MOCK_SESSION_TURNS: ConversationTurn[] = [];
 
 export const MOCK_USER_UTTERANCES = [
   "Hi Bunny, how are you today?",

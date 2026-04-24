@@ -7,11 +7,18 @@ export const runtime = "nodejs";
 
 type ChatBody = {
   turns?: ConversationTurn[];
+  memories?: string[];
+  lastCloser?: {
+    endedAt?: number;
+    turns?: Array<{ role: "user" | "assistant"; text: string }>;
+  } | null;
 };
 
 export async function POST(request: Request) {
   const body = (await request.json()) as ChatBody;
   const turns = body.turns ?? [];
+  const memories = Array.isArray(body.memories) ? body.memories.filter((m) => typeof m === "string") : [];
+  const lastCloser = body.lastCloser ?? null;
   const env = getProviderEnv();
 
   if (!Array.isArray(turns)) {
@@ -26,7 +33,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const text = await generateOpenRouterReply(turns);
+    const text = await generateOpenRouterReply(turns, memories, lastCloser);
 
     return Response.json({
       text,
