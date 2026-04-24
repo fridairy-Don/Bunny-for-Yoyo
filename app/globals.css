@@ -1506,3 +1506,47 @@ body.sleeping .mic {
     display: none;
   }
 }
+
+/* ─── error boundary fallback ────────────────────────────────────────── */
+.error-fallback {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: oklch(0.97 0.01 70);
+  z-index: 100;
+  font-family: "Fraunces", serif;
+  color: var(--rose, #b56a5a);
+}
+.error-fallback-card {
+  text-align: center;
+  padding: 40px 32px;
+  max-width: 320px;
+}
+.error-fallback-title {
+  font-size: 22px;
+  font-style: italic;
+  margin-bottom: 10px;
+}
+.error-fallback-body {
+  font-size: 14px;
+  color: oklch(0.55 0.03 40);
+  margin-bottom: 18px;
+  line-height: 1.55;
+}
+.error-fallback-button {
+  background: var(--rose-soft, #f3d3c6);
+  color: var(--rose, #b56a5a);
+  border: none;
+  padding: 10px 22px;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.18s ease, transform 0.12s ease;
+}
+.error-fallback-button:hover {
+  background: oklch(0.92 0.06 35);
+  transform: scale(1.02);
+}
+

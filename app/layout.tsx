@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { BunnyErrorBoundary } from "../components/chrome/error-boundary";
 
 export const metadata: Metadata = {
   title: "Bunny — a quiet place to talk",
@@ -26,7 +27,9 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        <BunnyErrorBoundary>{children}</BunnyErrorBoundary>
+      </body>
     </html>
   );
 }
