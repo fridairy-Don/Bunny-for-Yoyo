@@ -13,14 +13,34 @@ export type SessionCloser = {
   turns: Array<{ role: "user" | "assistant"; text: string }>;
 };
 
+export type MemoryType =
+  | "identity"
+  | "relationship"
+  | "routine"
+  | "people"
+  | "school"
+  | "emotion"
+  | "special_memory";
+
+export type MemorySource = "session" | "preset";
+
+export type MemoryTriggerScope =
+  | "global"
+  | "first_launch"
+  | "daily_chat"
+  | "comfort"
+  | "bedtime";
+
 export type DistilledMemory = {
   id: string;
   createdAt: number;
-  type: "routine" | "people" | "school" | "emotion" | "special_memory" | "identity" | "relationship";
+  type: MemoryType;
   content: string;
   importance: number;
-  source: "session";
+  source: MemorySource;
   sessionDate: string;
+  triggerScope?: MemoryTriggerScope;
+  editable?: boolean;
 };
 
 export type DailySession = {
@@ -91,17 +111,21 @@ type MemoryRow = {
   importance: number;
   source: string;
   session_date: string;
+  trigger_scope?: string | null;
+  editable?: boolean | null;
 };
 
 function rowToMemory(row: MemoryRow): DistilledMemory {
   return {
     id: row.id,
     createdAt: new Date(row.created_at).getTime(),
-    type: row.memory_type as DistilledMemory["type"],
+    type: row.memory_type as MemoryType,
     content: row.content,
     importance: Number(row.importance),
-    source: (row.source as DistilledMemory["source"]) ?? "session",
+    source: (row.source as MemorySource) ?? "session",
     sessionDate: row.session_date,
+    triggerScope: (row.trigger_scope as MemoryTriggerScope) ?? "global",
+    editable: row.editable ?? true,
   };
 }
 
@@ -115,12 +139,47 @@ function memoryToRow(m: DistilledMemory) {
     importance: m.importance,
     source: m.source,
     session_date: m.sessionDate,
+    trigger_scope: m.triggerScope ?? "global",
+    editable: m.editable ?? m.source === "preset",
   };
 }
 
 // ─── public API (async everywhere) ───
 
+// Child UI list: only session-distilled memories. Preset rows are parent
+// configuration and should not appear in the "our memories" drawer Yoyo
+// sees — they live under /parent instead.
 export async function getDistilledMemories(): Promise<DistilledMemory[]> {
+  await runMigrationOnce();
+  const sb = getSupabase();
+  if (!sb) {
+    const local = localGet<DistilledMemory[]>(KEY_MEMORIES, []);
+    return local.filter((m) => m.source !== "preset");
+  }
+
+  const { data, error } = await sb
+    .from("bunny_memories")
+    .select("*")
+    .eq("family_id", FAMILY_ID)
+    .eq("source", "session")
+    .order("created_at", { ascending: false })
+    .limit(200);
+
+  if (error) {
+    console.warn("[bunny] memory fetch failed, falling back to local:", error.message);
+    const local = localGet<DistilledMemory[]>(KEY_MEMORIES, []);
+    return local.filter((m) => m.source !== "preset");
+  }
+  const memories = (data as MemoryRow[]).map(rowToMemory);
+  // Cache session-only in the main cache key — presets live under a
+  // separate key to avoid leaking into child UI through the local fallback.
+  localSet(KEY_MEMORIES, memories);
+  return memories;
+}
+
+// Full list (session + preset). Used by prompt assembly and the parent
+// dashboard. Not exposed to the child drawer.
+export async function getAllMemories(): Promise<DistilledMemory[]> {
   await runMigrationOnce();
   const sb = getSupabase();
   if (!sb) return localGet<DistilledMemory[]>(KEY_MEMORIES, []);
@@ -129,16 +188,67 @@ export async function getDistilledMemories(): Promise<DistilledMemory[]> {
     .from("bunny_memories")
     .select("*")
     .eq("family_id", FAMILY_ID)
+    .order("importance", { ascending: false })
     .order("created_at", { ascending: false })
-    .limit(200);
+    .limit(400);
 
   if (error) {
     console.warn("[bunny] memory fetch failed, falling back to local:", error.message);
     return localGet<DistilledMemory[]>(KEY_MEMORIES, []);
   }
-  const memories = (data as MemoryRow[]).map(rowToMemory);
-  localSet(KEY_MEMORIES, memories); // keep local cache fresh for instant next paint
-  return memories;
+  return (data as MemoryRow[]).map(rowToMemory);
+}
+
+// Preset-only list (parent dashboard edit view).
+export async function getPresetMemories(): Promise<DistilledMemory[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from("bunny_memories")
+    .select("*")
+    .eq("family_id", FAMILY_ID)
+    .eq("source", "preset")
+    .order("trigger_scope", { ascending: true })
+    .order("importance", { ascending: false });
+  if (error || !data) return [];
+  return (data as MemoryRow[]).map(rowToMemory);
+}
+
+// Upsert a preset row. Used by /parent/setup Onboarding and the /parent
+// dashboard editor. Inserts when id is new, updates in place otherwise.
+export async function upsertPresetMemory(mem: DistilledMemory): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) return;
+  const row = memoryToRow({ ...mem, source: "preset" });
+  const { error } = await sb.from("bunny_memories").upsert(row, { onConflict: "id" });
+  if (error) {
+    console.warn("[bunny] preset upsert failed:", error.message);
+    throw new Error(error.message);
+  }
+}
+
+// Seed the DB with compile-time preset memories if the family has none
+// yet. Idempotent: once a single preset row exists for this family we
+// skip the seed so parent edits in /parent are never overwritten.
+export async function seedPresetsIfMissing(
+  presets: DistilledMemory[],
+): Promise<void> {
+  if (!presets.length) return;
+  const sb = getSupabase();
+  if (!sb) return;
+  const { count, error: headErr } = await sb
+    .from("bunny_memories")
+    .select("id", { count: "exact", head: true })
+    .eq("family_id", FAMILY_ID)
+    .eq("source", "preset");
+  if (headErr) {
+    console.warn("[bunny] preset seed check failed:", headErr.message);
+    return;
+  }
+  if ((count ?? 0) > 0) return;
+  const rows = presets.map((m) => memoryToRow({ ...m, source: "preset" }));
+  const { error } = await sb.from("bunny_memories").insert(rows);
+  if (error) console.warn("[bunny] preset seed insert failed:", error.message);
 }
 
 export async function addDistilledMemories(

@@ -9,11 +9,13 @@ import {
   getLastSessionCloser,
   getRecentSummaries,
   removeDistilledMemory,
+  seedPresetsIfMissing,
   wipeAllMemory,
   type DailySession,
   type DistilledMemory,
   type SessionCloser,
 } from "../lib/memory/session-store";
+import { defaultPresetMemoryRows } from "../lib/memory/preset-memory";
 import { useSessionSave } from "../lib/memory/use-session-save";
 import { useMusicPlayer } from "../lib/music/use-music-player";
 import { useCaptionStream } from "../lib/conversation/use-caption-stream";
@@ -178,6 +180,7 @@ export default function Home() {
       : Promise.resolve();
 
     void wipePromise
+      .then(() => seedPresetsIfMissing(defaultPresetMemoryRows()))
       .then(() => getDistilledMemories())
       .then((list) => {
         if (cancelled) return;

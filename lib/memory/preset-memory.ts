@@ -1,18 +1,14 @@
-export type PresetMemoryType =
-  | "identity"
-  | "relationship"
-  | "routine"
-  | "people"
-  | "school"
-  | "emotion"
-  | "special_memory";
+// Re-export the canonical types from session-store so that callers of this
+// module only need one import site. MemoryType + MemoryTriggerScope are
+// defined in session-store because they correspond to DB columns; this file
+// just holds the compile-time seed data.
+import type {
+  MemoryType as _MemoryType,
+  MemoryTriggerScope as _MemoryTriggerScope,
+} from "./session-store";
 
-export type MemoryTriggerScope =
-  | "global"
-  | "first_launch"
-  | "daily_chat"
-  | "comfort"
-  | "bedtime";
+export type PresetMemoryType = _MemoryType;
+export type MemoryTriggerScope = _MemoryTriggerScope;
 
 export type PresetMemory = {
   id: string;
@@ -267,4 +263,28 @@ export function formatPresetMemoryForPrompt(memory: PresetMemory[]) {
         `- [${item.type}] ${item.content} (importance: ${item.importance.toFixed(2)}, scope: ${item.triggerScope})`,
     )
     .join("\n");
+}
+
+// Convert compile-time presets into DistilledMemory rows for persisting to
+// Supabase. Used by seedPresetsIfMissing on first launch.
+import type { DistilledMemory } from "./session-store";
+
+export function presetToMemoryRow(p: PresetMemory): DistilledMemory {
+  // Freeze the createdAt at 2024-01-01 so subsequent ordering still keeps
+  // session-distilled memories ahead of presets in recency.
+  return {
+    id: p.id,
+    createdAt: Date.parse("2024-01-01T00:00:00.000Z"),
+    type: p.type,
+    content: p.content,
+    importance: p.importance,
+    source: "preset",
+    sessionDate: "2024-01-01",
+    triggerScope: p.triggerScope,
+    editable: p.editable,
+  };
+}
+
+export function defaultPresetMemoryRows(): DistilledMemory[] {
+  return PRESET_BUNNY_MEMORY.map(presetToMemoryRow);
 }
