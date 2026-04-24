@@ -16,22 +16,7 @@ import {
   type DistilledMemory,
   type SessionCloser,
 } from "../lib/memory/session-store";
-import { BUILTIN_TRACKS, type MusicTrack } from "../lib/config/music";
-import {
-  addLocalTrack,
-  deleteLocalTrack,
-  formatFileSize,
-  listLocalTracks,
-  type LocalTrack,
-} from "../lib/audio/local-library";
-
-type PlayableTrack = {
-  id: string;
-  title: string;
-  desc: string;
-  src: string;
-  builtIn: boolean;
-};
+import { useMusicPlayer } from "../lib/music/use-music-player";
 
 type MemoryGroup = {
   dateKey: string;
@@ -48,20 +33,6 @@ type DisplayedTurn = {
 type CaptionPhase = "idle" | "entering" | "exiting";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
-
-function builtInAsPlayable(t: MusicTrack): PlayableTrack {
-  return { id: t.id, title: t.title, desc: t.desc, src: t.src, builtIn: true };
-}
-
-function localAsPlayable(t: LocalTrack & { objectUrl: string }): PlayableTrack {
-  return {
-    id: t.id,
-    title: t.title,
-    desc: `${formatFileSize(t.size)} · from your computer`,
-    src: t.objectUrl,
-    builtIn: false,
-  };
-}
 
 const TIME_COPY: Record<string, { label: string; warm: string }> = {
   "late night": { label: "late night", warm: "she waited up a little" },
@@ -152,29 +123,10 @@ export default function Home() {
   const [memories, setMemories] = useState<DistilledMemory[]>([]);
   const [memoryDetail, setMemoryDetail] = useState<DistilledMemory | null>(null);
   const [memoryDetailSession, setMemoryDetailSession] = useState<DailySession | null>(null);
-  const [currentTrack, setCurrentTrack] = useState<number>(-1);
-  const [playing, setPlaying] = useState(false);
-  const [audioVolume, setAudioVolume] = useState(0.2);
-  const [playMode, setPlayMode] = useState<"repeat-one" | "shuffle" | "sequential">(
-    "repeat-one",
-  );
-  const [hasAutoStarted, setHasAutoStarted] = useState(false);
-  const [audioError, setAudioError] = useState(false);
-  const [localTracks, setLocalTracks] = useState<Array<LocalTrack & { objectUrl: string }>>([]);
-  const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  // Track which track id is actually loaded into the <audio> element so we
-  // only touch audio.src when the track truly changes. Without this guard,
-  // every render that rebuilds TRACKS would re-assign audio.src and restart
-  // the network load — causing stutter and spurious "error" events.
-  const loadedTrackIdRef = useRef<string | null>(null);
+  const music = useMusicPlayer(0.2);
   const [resetConfirming, setResetConfirming] = useState(false);
   const [memConfirmId, setMemConfirmId] = useState<string | null>(null);
 
-  const TRACKS: PlayableTrack[] = useMemo(() => {
-    return [...BUILTIN_TRACKS.map(builtInAsPlayable), ...localTracks.map(localAsPlayable)];
-  }, [localTracks]);
   const [motes, setMotes] = useState<
     Array<{ left: string; size: number; duration: number; delay: number; opacity: number }>
   >([]);
@@ -261,143 +213,6 @@ export default function Home() {
     };
   }, []);
 
-  // single shared <audio> element for mp3 playback
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const audio = new Audio();
-    audio.preload = "none";
-    audio.volume = audioVolume;
-    audio.addEventListener("play", () => {
-      setPlaying(true);
-      setAudioError(false);
-    });
-    audio.addEventListener("pause", () => setPlaying(false));
-    audio.addEventListener("error", () => {
-      // Only surface an error if there is actually a src loaded. Setting
-      // audio.src to "" or hot-reloading during dev can otherwise trip a
-      // spurious "error" that shows "track file not found" with no cause.
-      if (audio.src && audio.src !== window.location.href) {
-        setPlaying(false);
-        setAudioError(true);
-      }
-    });
-    audioRef.current = audio;
-    return () => {
-      audio.pause();
-      // Do NOT clear audio.src here — removing src fires an error event on
-      // some browsers which then flashes "track file not found" on next mount.
-      audioRef.current = null;
-      loadedTrackIdRef.current = null;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // advance behaviour on end depends on the current play mode.
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.loop = playMode === "repeat-one";
-    const onEnded = () => {
-      if (TRACKS.length === 0) return;
-      if (playMode === "repeat-one") {
-        // audio.loop handles this, but some browsers still fire ended once.
-        audio.currentTime = 0;
-        audio.play().catch(() => undefined);
-        return;
-      }
-      if (playMode === "shuffle") {
-        if (TRACKS.length === 1) {
-          audio.currentTime = 0;
-          audio.play().catch(() => undefined);
-          return;
-        }
-        setCurrentTrack((idx) => {
-          let next = idx;
-          while (next === idx) {
-            next = Math.floor(Math.random() * TRACKS.length);
-          }
-          return next;
-        });
-        return;
-      }
-      // sequential
-      setCurrentTrack((idx) => (idx + 1) % TRACKS.length);
-    };
-    audio.addEventListener("ended", onEnded);
-    return () => audio.removeEventListener("ended", onEnded);
-  }, [TRACKS.length, playMode]);
-
-  // drive audio output from currentTrack + playing state. Only touches
-  // audio.src when the actual track id changes so a simple pause/resume
-  // does not re-download the whole file.
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    if (currentTrack < 0 || currentTrack >= TRACKS.length || !playing) {
-      audio.pause();
-      return;
-    }
-    const track = TRACKS[currentTrack];
-    setAudioError(false);
-    if (loadedTrackIdRef.current !== track.id) {
-      audio.src = track.src;
-      loadedTrackIdRef.current = track.id;
-    }
-    const p = audio.play();
-    if (p && typeof p.catch === "function") {
-      p.catch(() => {
-        setPlaying(false);
-        setAudioError(true);
-      });
-    }
-  }, [currentTrack, playing, TRACKS]);
-
-  // keep volume in sync
-  useEffect(() => {
-    if (audioRef.current) audioRef.current.volume = audioVolume;
-  }, [audioVolume]);
-
-  // Start the first track on the user's first interaction with the page.
-  // Browsers block silent autoplay, but any click / key / tap within the
-  // document unblocks the <audio> element — we latch on that gesture.
-  useEffect(() => {
-    if (hasAutoStarted) return;
-    if (TRACKS.length === 0) return;
-    const start = () => {
-      if (hasAutoStarted) return;
-      setHasAutoStarted(true);
-      setCurrentTrack((idx) => (idx >= 0 ? idx : 0));
-      setPlaying(true);
-      cleanup();
-    };
-    const cleanup = () => {
-      window.removeEventListener("pointerdown", start);
-      window.removeEventListener("keydown", start);
-      window.removeEventListener("touchstart", start);
-    };
-    window.addEventListener("pointerdown", start, { once: true });
-    window.addEventListener("keydown", start, { once: true });
-    window.addEventListener("touchstart", start, { once: true });
-    return cleanup;
-  }, [hasAutoStarted, TRACKS.length]);
-
-  // load user-uploaded local library on mount
-  useEffect(() => {
-    let cancelled = false;
-    void listLocalTracks()
-      .then((list) => {
-        if (!cancelled) setLocalTracks(list);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-      // revoke object URLs on unmount
-      setLocalTracks((current) => {
-        current.forEach((t) => URL.revokeObjectURL(t.objectUrl));
-        return current;
-      });
-    };
-  }, []);
 
   // body class for sleep
   useEffect(() => {
@@ -650,82 +465,6 @@ export default function Home() {
     }
   }, []);
 
-  const onPlayPause = () => {
-    if (TRACKS.length === 0) return;
-    if (currentTrack < 0) {
-      setCurrentTrack(0);
-      setPlaying(true);
-      return;
-    }
-    setPlaying((p) => !p);
-  };
-
-  const onPrevTrack = () => {
-    if (TRACKS.length === 0) return;
-    setCurrentTrack((i) => (i <= 0 ? TRACKS.length - 1 : i - 1));
-    setPlaying(true);
-  };
-
-  const onNextTrack = () => {
-    if (TRACKS.length === 0) return;
-    setCurrentTrack((i) => (i + 1) % TRACKS.length);
-    setPlaying(true);
-  };
-
-  const cyclePlayMode = () => {
-    setPlayMode((m) =>
-      m === "repeat-one" ? "shuffle" : m === "shuffle" ? "sequential" : "repeat-one",
-    );
-  };
-
-  const playModeLabel =
-    playMode === "repeat-one" ? "repeat one" : playMode === "shuffle" ? "shuffle" : "in order";
-
-  const nowPlayingText =
-    currentTrack < 0 || currentTrack >= TRACKS.length
-      ? "nothing playing yet"
-      : `${playing ? "♪ " : ""}${TRACKS[currentTrack].title} · ${TRACKS[currentTrack].desc}`;
-
-  const onOpenFilePicker = () => {
-    fileInputRef.current?.click();
-  };
-
-  const onFilesPicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
-    if (!files.length) return;
-    setUploading(true);
-    try {
-      for (const file of files) {
-        if (!file.type.startsWith("audio/") && !/\.(mp3|wav|m4a|ogg)$/i.test(file.name)) continue;
-        await addLocalTrack(file);
-      }
-      const fresh = await listLocalTracks();
-      setLocalTracks((old) => {
-        old.forEach((t) => URL.revokeObjectURL(t.objectUrl));
-        return fresh;
-      });
-    } catch (err) {
-      console.warn("[bunny] upload failed:", err);
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  };
-
-  const onDeleteLocalTrack = async (id: string) => {
-    const idx = TRACKS.findIndex((t) => t.id === id);
-    if (idx === currentTrack) {
-      setPlaying(false);
-      setCurrentTrack(-1);
-    }
-    await deleteLocalTrack(id);
-    setLocalTracks((old) => {
-      const removed = old.find((t) => t.id === id);
-      if (removed) URL.revokeObjectURL(removed.objectUrl);
-      return old.filter((t) => t.id !== id);
-    });
-  };
-
   const memoryGroups = useMemo(() => groupMemoriesByDate(memories), [memories]);
 
   const saveLabel = (() => {
@@ -964,8 +703,8 @@ export default function Home() {
           <button
             type="button"
             className="music-upload-btn"
-            onClick={onOpenFilePicker}
-            disabled={uploading}
+            onClick={music.openFilePicker}
+            disabled={music.uploading}
           >
             <svg
               viewBox="0 0 24 24"
@@ -979,29 +718,26 @@ export default function Home() {
             >
               <path d="M12 5v14M5 12h14" />
             </svg>
-            <span>{uploading ? "adding…" : "add music from my computer"}</span>
+            <span>{music.uploading ? "adding…" : "add music from my computer"}</span>
           </button>
           <input
-            ref={fileInputRef}
+            ref={music.fileInputRef}
             type="file"
             accept="audio/*,.mp3,.wav,.m4a,.ogg"
             multiple
             hidden
-            onChange={onFilesPicked}
+            onChange={music.onFilesPicked}
           />
-          {TRACKS.length === 0 ? (
+          {music.tracks.length === 0 ? (
             <div className="music-empty">
               no music yet. tap the button above to add your own.
             </div>
           ) : (
-            TRACKS.map((t, i) => (
+            music.tracks.map((t, i) => (
               <div
                 key={t.id}
-                className={`track ${i === currentTrack ? "playing" : ""}`}
-                onClick={() => {
-                  setCurrentTrack(i);
-                  setPlaying(true);
-                }}
+                className={`track ${i === music.currentTrack ? "playing" : ""}`}
+                onClick={() => music.selectTrack(i)}
               >
                 <div className="icon">
                   <svg
@@ -1029,7 +765,7 @@ export default function Home() {
                     title="remove from library"
                     onClick={(e) => {
                       e.stopPropagation();
-                      void onDeleteLocalTrack(t.id);
+                      void music.deleteLocal(t.id);
                     }}
                   >
                     ×
@@ -1059,39 +795,39 @@ export default function Home() {
             min={0}
             max={1}
             step={0.05}
-            value={audioVolume}
-            onChange={(e) => setAudioVolume(Number(e.target.value))}
+            value={music.volume}
+            onChange={(e) => music.setVolume(Number(e.target.value))}
             aria-label="Volume"
             className="volume-slider"
           />
         </div>
         <div className="player-bar">
-          <button onClick={onPrevTrack} aria-label="Previous">
+          <button onClick={music.prev} aria-label="Previous">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="M19 20 9 12l10-8zM5 4v16" />
             </svg>
           </button>
-          <button className="play" onClick={onPlayPause} aria-label="Play/Pause">
+          <button className="play" onClick={music.playPause} aria-label="Play/Pause">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-              {playing && currentTrack >= 0 ? (
+              {music.playing && music.currentTrack >= 0 ? (
                 <path d="M6 4h4v16H6zM14 4h4v16h-4z" />
               ) : (
                 <path d="M6 4v16l14-8z" />
               )}
             </svg>
           </button>
-          <button onClick={onNextTrack} aria-label="Next">
+          <button onClick={music.next} aria-label="Next">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="M5 4l10 8-10 8zM19 4v16" />
             </svg>
           </button>
           <button
             className="play-mode"
-            onClick={cyclePlayMode}
-            aria-label={`play mode: ${playModeLabel}`}
-            title={playModeLabel}
+            onClick={music.cyclePlayMode}
+            aria-label={`play mode: ${music.playModeLabel}`}
+            title={music.playModeLabel}
           >
-            {playMode === "repeat-one" ? (
+            {music.playMode === "repeat-one" ? (
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M17 2l4 4-4 4" />
                 <path d="M3 11V9a4 4 0 0 1 4-4h14" />
@@ -1099,7 +835,7 @@ export default function Home() {
                 <path d="M21 13v2a4 4 0 0 1-4 4H3" />
                 <text x="12" y="14" textAnchor="middle" fontSize="7" fontWeight="700" fill="currentColor" stroke="none">1</text>
               </svg>
-            ) : playMode === "shuffle" ? (
+            ) : music.playMode === "shuffle" ? (
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M16 3h5v5" />
                 <path d="M4 20L21 3" />
@@ -1117,9 +853,9 @@ export default function Home() {
             )}
           </button>
           <span className="t">
-            {audioError && currentTrack >= 0
+            {music.audioError && music.currentTrack >= 0
               ? "this track did not load — pick another or add a new one"
-              : nowPlayingText}
+              : music.nowPlayingText}
           </span>
         </div>
       </div>
