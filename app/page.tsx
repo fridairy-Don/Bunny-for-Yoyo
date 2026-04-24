@@ -160,6 +160,11 @@ export default function Home() {
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Track which track id is actually loaded into the <audio> element so we
+  // only touch audio.src when the track truly changes. Without this guard,
+  // every render that rebuilds TRACKS would re-assign audio.src and restart
+  // the network load — causing stutter and spurious "error" events.
+  const loadedTrackIdRef = useRef<string | null>(null);
   const [resetConfirming, setResetConfirming] = useState(false);
   const [memConfirmId, setMemConfirmId] = useState<string | null>(null);
 
@@ -264,14 +269,21 @@ export default function Home() {
     });
     audio.addEventListener("pause", () => setPlaying(false));
     audio.addEventListener("error", () => {
-      setPlaying(false);
-      setAudioError(true);
+      // Only surface an error if there is actually a src loaded. Setting
+      // audio.src to "" or hot-reloading during dev can otherwise trip a
+      // spurious "error" that shows "track file not found" with no cause.
+      if (audio.src && audio.src !== window.location.href) {
+        setPlaying(false);
+        setAudioError(true);
+      }
     });
     audioRef.current = audio;
     return () => {
       audio.pause();
-      audio.src = "";
+      // Do NOT clear audio.src here — removing src fires an error event on
+      // some browsers which then flashes "track file not found" on next mount.
       audioRef.current = null;
+      loadedTrackIdRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -288,7 +300,9 @@ export default function Home() {
     return () => audio.removeEventListener("ended", onEnded);
   }, [TRACKS.length]);
 
-  // drive audio output from currentTrack + playing state
+  // drive audio output from currentTrack + playing state. Only touches
+  // audio.src when the actual track id changes so a simple pause/resume
+  // does not re-download the whole file.
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -298,8 +312,9 @@ export default function Home() {
     }
     const track = TRACKS[currentTrack];
     setAudioError(false);
-    if (audio.src !== track.src) {
+    if (loadedTrackIdRef.current !== track.id) {
       audio.src = track.src;
+      loadedTrackIdRef.current = track.id;
     }
     const p = audio.play();
     if (p && typeof p.catch === "function") {
@@ -392,17 +407,29 @@ export default function Home() {
     return "Bunny is here";
   }, [status, asleep]);
 
-  // child-friendly error caption
+  // child-friendly error caption. Match on substrings because upstream error
+  // messages come from several layers (recorder, STT API, LLM) with slightly
+  // different spellings like "microphone_permission_denied" or "silent_audio_capture".
   const errorCaption = useMemo(() => {
     if (!error) return null;
-    if (error === "permission_denied") {
+    const e = error.toLowerCase();
+    if (e.includes("permission") && e.includes("denied")) {
       return "I can't hear you yet — please let the little mic listen.";
     }
-    if (error === "silent_audio" || error === "empty_audio") {
+    if (e.includes("silent") || e.includes("empty_audio")) {
       return "Hmm, I didn't catch that. Try saying it a little louder.";
     }
-    if (error === "unsupported") {
+    if (e.includes("unsupported")) {
       return "This place doesn't have ears. Try a different browser.";
+    }
+    if (e.includes("recorder")) {
+      return "My ears are shy. Tap the mic once more.";
+    }
+    if (e.includes("stt") || e.includes("transcription")) {
+      return "My ears got fuzzy. Tap the mic and try again.";
+    }
+    if (e.includes("chat") || e.includes("llm")) {
+      return "I lost my words for a second. Tap the mic and try again.";
     }
     return "Something got tangled. Let's try one more time.";
   }, [error]);
@@ -990,7 +1017,7 @@ export default function Home() {
           </button>
           <span className="t">
             {audioError && currentTrack >= 0
-              ? "track file not found — add mp3s to public/assets/music/"
+              ? "this track did not load — pick another or add a new one"
               : nowPlayingText}
           </span>
         </div>
