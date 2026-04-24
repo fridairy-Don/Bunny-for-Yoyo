@@ -154,7 +154,7 @@ export default function Home() {
   const [memoryDetailSession, setMemoryDetailSession] = useState<DailySession | null>(null);
   const [currentTrack, setCurrentTrack] = useState<number>(-1);
   const [playing, setPlaying] = useState(false);
-  const [audioVolume, setAudioVolume] = useState(0.45);
+  const [audioVolume, setAudioVolume] = useState(0.2);
   const [playMode, setPlayMode] = useState<"repeat-one" | "shuffle" | "sequential">(
     "repeat-one",
   );
@@ -504,7 +504,17 @@ export default function Home() {
   if (captionRole === "user") captionClassName.push("is-user");
   if (karaokeActive) captionClassName.push("has-karaoke");
 
-  const captionWords = useMemo(() => captionText.split(" ").filter(Boolean), [captionText]);
+  // Split on any whitespace (spaces, newlines, tabs) to match the server-side
+  // word-timing tokenizer exactly. If we split only on " ", a word that sits
+  // next to a paragraph break "...to me.\n\nI stay..." becomes one giant
+  // "me.\n\nI" token whose inline-block renders across two lines and whose
+  // pink karaoke pill visibly engulfs BOTH words. Splitting on \s+ keeps each
+  // real word as its own span and keeps the client's index in sync with
+  // ElevenLabs' character alignment.
+  const captionWords = useMemo(
+    () => captionText.split(/\s+/).filter(Boolean),
+    [captionText],
+  );
   const currentWordRef = useRef<HTMLSpanElement | null>(null);
 
   // As each word lights up, gently scroll it into view so long replies keep
