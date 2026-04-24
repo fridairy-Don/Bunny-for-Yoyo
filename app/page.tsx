@@ -139,33 +139,15 @@ export default function Home() {
     memoriesRef.current = memories;
   }, [memories]);
 
+  // mount-only: optional ?wipe=1 reset + load persisted memories + summaries +
+  // last-closer + first-launch drama. Consolidated into one effect so that
+  // the first-launch detection sees definitive state before firing — a
+  // returning user with a last-closer row must never get the wake-up drama.
   useEffect(() => {
     if (typeof window === "undefined") return;
     let cancelled = false;
-    void getLastSessionCloser()
-      .then((closer) => {
-        if (cancelled) return;
-        lastCloserRef.current = closer;
-      })
-      .catch(() => undefined);
-    void getRecentSummaries(3)
-      .then((summaries) => {
-        if (cancelled) return;
-        recentSummariesRef.current = summaries;
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
-  // mount-only: optional ?wipe=1 reset + load persisted memories + first-launch drama
-  useEffect(() => {
-    let cancelled = false;
-
-    // Parent / test reset: navigating with ?wipe=1 clears all bunny storage.
-    const doWipe =
-      typeof window !== "undefined" && window.location.search.includes("wipe=1");
+    const doWipe = window.location.search.includes("wipe=1");
     const wipePromise = doWipe
       ? wipeAllMemory().then(() => {
           if (cancelled) return;
@@ -176,13 +158,10 @@ export default function Home() {
             "",
             url.pathname + (url.search ? "?" + url.searchParams.toString() : ""),
           );
-          // Wiping also clears the first-launch done flag so the wake-up
-          // drama plays again — useful for testing and for handing a fresh
-          // Bunny to Yoyo.
           try {
             window.localStorage.removeItem("bunny:first_launch_done");
           } catch {
-            // quota / privacy mode
+            /* quota */
           }
           setShowWipeBanner(true);
           window.setTimeout(() => setShowWipeBanner(false), 2800);
@@ -191,33 +170,63 @@ export default function Home() {
 
     void wipePromise
       .then(() => seedPresetsIfMissing(defaultPresetMemoryRows()))
-      .then(() => getDistilledMemories())
-      .then((list) => {
+      .then(() =>
+        Promise.all([
+          getDistilledMemories(),
+          getLastSessionCloser(),
+          getRecentSummaries(3),
+        ]),
+      )
+      .then(([list, closer, summaries]) => {
         if (cancelled) return;
         setMemories(list);
-        // First-launch detection: nothing persisted AND flag not set.
-        // Runs after wipe so `?wipe=1` correctly retriggers the drama.
-        const alreadyWoken =
-          typeof window !== "undefined"
-            ? window.localStorage.getItem("bunny:first_launch_done")
-            : "1";
-        if (!alreadyWoken && list.length === 0 && lastCloserRef.current === null) {
-          // Pause ~1.5s so Yoyo has a beat to look at Bunny before it stirs.
-          window.setTimeout(() => {
-            if (cancelled) return;
-            void triggerAutoOpener({ firstLaunch: true })
-              .catch(() => undefined)
-              .finally(() => {
-                try {
-                  window.localStorage.setItem(
-                    "bunny:first_launch_done",
-                    String(Date.now()),
-                  );
-                } catch {
-                  // quota / privacy mode
-                }
-              });
-          }, 1500);
+        lastCloserRef.current = closer;
+        recentSummariesRef.current = summaries;
+
+        // First-launch detection: nothing persisted AND flag not set. Now
+        // we have definitive values for all three, so no race.
+        const alreadyWoken = window.localStorage.getItem("bunny:first_launch_done");
+        if (!alreadyWoken && list.length === 0 && closer === null) {
+          // Browsers suspend AudioContext until a user gesture. Auto-playing
+          // TTS before the child taps anything would fail silently on iPad.
+          // Gate on: min 1.5s visual pause + first gesture, whichever is later.
+          const MIN_DELAY_MS = 1500;
+          const mountedAt = Date.now();
+          let fired = false;
+
+          const fire = () => {
+            if (fired || cancelled) return;
+            fired = true;
+            const elapsed = Date.now() - mountedAt;
+            const wait = Math.max(0, MIN_DELAY_MS - elapsed);
+            window.setTimeout(() => {
+              if (cancelled) return;
+              void triggerAutoOpener({ firstLaunch: true })
+                .catch(() => undefined)
+                .finally(() => {
+                  try {
+                    window.localStorage.setItem(
+                      "bunny:first_launch_done",
+                      String(Date.now()),
+                    );
+                  } catch {
+                    /* quota */
+                  }
+                });
+            }, wait);
+            cleanupGestureListeners();
+          };
+          const cleanupGestureListeners = () => {
+            window.removeEventListener("pointerdown", fire);
+            window.removeEventListener("keydown", fire);
+            window.removeEventListener("touchstart", fire);
+          };
+          window.addEventListener("pointerdown", fire, { once: true });
+          window.addEventListener("keydown", fire, { once: true });
+          window.addEventListener("touchstart", fire, { once: true });
+
+          // cleanup if unmounted before firing
+          return () => cleanupGestureListeners();
         }
       })
       .catch(() => undefined);

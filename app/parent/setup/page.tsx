@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   ONBOARDING_FIELDS,
@@ -23,25 +23,26 @@ export default function ParentSetupPage() {
   const [submitState, setSubmitState] = useState<SubmitState>("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  // Track what each field looked like when we loaded it so that on submit
+  // we can distinguish "parent left this alone" (write back as-is, no
+  // template re-wrap) from "parent typed a new answer" (wrap through the
+  // field template). Without this, the already-wrapped sentence would get
+  // wrapped a second time and produce garbage like "The child you love is
+  // named The child you love is named Yoyo…".
+  const existingWrappedRef = useRef<Record<string, string>>({});
+  const [currentSaved, setCurrentSaved] = useState<Record<string, string>>({});
 
-  // Pre-fill from existing preset rows so re-entry shows the parent what
-  // they already saved and lets them edit.
   useEffect(() => {
     let cancelled = false;
     void getPresetMemories()
       .then((rows) => {
         if (cancelled) return;
-        const prefill: Record<string, string> = {};
+        const saved: Record<string, string> = {};
         for (const row of rows) {
-          // Answers are wrapped through field.template at submit time, so
-          // we can't reverse them 1:1. For edit UX we just show the full
-          // stored content as the seed value and let the parent re-type.
-          // Field ids starting with 'onb-' came from this form.
-          if (row.id.startsWith("onb-")) {
-            prefill[row.id] = row.content;
-          }
+          if (row.id.startsWith("onb-")) saved[row.id] = row.content;
         }
-        setAnswers(prefill);
+        setCurrentSaved(saved);
+        existingWrappedRef.current = saved;
       })
       .finally(() => {
         if (!cancelled) setLoaded(true);
@@ -61,9 +62,17 @@ export default function ParentSetupPage() {
     setSubmitState("saving");
     setErrorMsg(null);
     try {
-      const rows = fieldsToMemoryRows(answers);
-      // write sequentially so that a 500 on row 3 doesn't leave rows 1-2
-      // in an ambiguous state — each upsert is atomic for its own id.
+      // For every field where the parent typed a new answer → wrap via
+      // field.template. For fields they left blank, we consult existing
+      // saved content: if something was already saved, leave it. If not,
+      // skip.
+      const onlyNew: Record<string, string> = {};
+      for (const [id, val] of Object.entries(answers)) {
+        const trimmed = (val ?? "").trim();
+        if (trimmed.length === 0) continue;
+        onlyNew[id] = trimmed;
+      }
+      const rows = fieldsToMemoryRows(onlyNew);
       for (const row of rows) {
         await upsertPresetMemory(row);
       }
@@ -76,6 +85,17 @@ export default function ParentSetupPage() {
         /* quota */
       }
       setSubmitState("saved");
+      // Refresh the "currently saved" hints so next submit sees the new
+      // wrapped content and doesn't double-wrap.
+      void getPresetMemories().then((fresh) => {
+        const next: Record<string, string> = {};
+        for (const row of fresh) {
+          if (row.id.startsWith("onb-")) next[row.id] = row.content;
+        }
+        setCurrentSaved(next);
+        existingWrappedRef.current = next;
+        setAnswers({});
+      });
     } catch (err) {
       console.error("[bunny] onboarding save failed:", err);
       setSubmitState("error");
@@ -112,6 +132,7 @@ export default function ParentSetupPage() {
               <div className="parent-section-body">
                 {sectionFields.map((field) => {
                   const value = answers[field.id] ?? "";
+                  const saved = currentSaved[field.id];
                   return (
                     <label key={field.id} className="parent-field">
                       <span className="parent-field-label">{field.label}</span>
@@ -132,6 +153,17 @@ export default function ParentSetupPage() {
                           onChange={(e) => onChange(field.id, e.target.value)}
                         />
                       )}
+                      {saved ? (
+                        <span
+                          style={{
+                            fontSize: 12,
+                            fontStyle: "italic",
+                            color: "oklch(0.55 0.02 40)",
+                          }}
+                        >
+                          currently: {saved}
+                        </span>
+                      ) : null}
                     </label>
                   );
                 })}
