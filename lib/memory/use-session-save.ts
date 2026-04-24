@@ -7,7 +7,9 @@ import {
   addDistilledMemories,
   archiveSession,
   getLastSessionCloser,
+  getRecentSummaries,
   saveLastSessionCloser,
+  updateSessionSummary,
   type DistilledMemory,
   type SessionCloser,
 } from "./session-store";
@@ -19,6 +21,7 @@ type Options = {
   getExistingMemories: () => string[];
   onAccepted: (accepted: DistilledMemory[]) => void;
   onCloserUpdated: (closer: SessionCloser | null) => void;
+  onSummariesUpdated?: (summaries: string[]) => void;
 };
 
 // Encapsulates the save-to-memory flow: distill via /api/distill, dedup +
@@ -61,7 +64,7 @@ export function useSessionSave(options: Options) {
       const accepted = await addDistilledMemories(candidateMemories);
       if (accepted.length) options.onAccepted(accepted);
 
-      await archiveSession(payloadTurns, accepted.map((m) => m.id));
+      const sessionId = await archiveSession(payloadTurns, accepted.map((m) => m.id));
 
       // capture the tail of this session so the next opening can continue from it
       await saveLastSessionCloser(payloadTurns, 4);
@@ -69,6 +72,33 @@ export function useSessionSave(options: Options) {
 
       setSaveState("saved");
       window.setTimeout(() => setSaveState("idle"), 2400);
+
+      // Summarize the session in the background — flips the button back to
+      // idle without waiting on the LLM. Attaches to bunny_sessions.summary
+      // and refreshes the in-memory list of recent summaries used by the
+      // next-visit prompt.
+      if (sessionId) {
+        void (async () => {
+          try {
+            const res = await fetch("/api/summarize", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ turns: payloadTurns }),
+            });
+            const data = await res.json();
+            const summary = typeof data?.summary === "string" ? data.summary.trim() : "";
+            if (summary) {
+              await updateSessionSummary(sessionId, summary);
+              if (options.onSummariesUpdated) {
+                const fresh = await getRecentSummaries(3);
+                options.onSummariesUpdated(fresh);
+              }
+            }
+          } catch (err) {
+            console.warn("[bunny] background summarize failed:", err);
+          }
+        })();
+      }
     } catch {
       setSaveState("error");
       window.setTimeout(() => setSaveState("idle"), 2400);

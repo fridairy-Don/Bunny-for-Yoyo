@@ -7,6 +7,7 @@ import {
   findSessionContainingMemory,
   getDistilledMemories,
   getLastSessionCloser,
+  getRecentSummaries,
   removeDistilledMemory,
   wipeAllMemory,
   type DailySession,
@@ -109,13 +110,16 @@ export default function Home() {
     status,
   );
 
-  // session save flow — distill + archive + refresh last-closer
+  // session save flow — distill + archive + refresh last-closer + summary
   const sessionSave = useSessionSave({
     getTurns: () => turns,
     getExistingMemories: () => memoriesRef.current.map((m) => m.content),
     onAccepted: (accepted) => setMemories((current) => [...accepted, ...current]),
     onCloserUpdated: (closer) => {
       lastCloserRef.current = closer;
+    },
+    onSummariesUpdated: (summaries) => {
+      recentSummariesRef.current = summaries;
     },
   });
 
@@ -130,6 +134,12 @@ export default function Home() {
       .then((closer) => {
         if (cancelled) return;
         lastCloserRef.current = closer;
+      })
+      .catch(() => undefined);
+    void getRecentSummaries(3)
+      .then((summaries) => {
+        if (cancelled) return;
+        recentSummariesRef.current = summaries;
       })
       .catch(() => undefined);
     return () => {

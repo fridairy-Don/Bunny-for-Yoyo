@@ -196,9 +196,9 @@ export async function removeDistilledMemory(memoryId: string): Promise<void> {
 export async function archiveSession(
   turns: ConversationTurn[],
   distilledIds: string[],
-): Promise<void> {
+): Promise<string | null> {
   const filtered = turns.filter((t) => t.role !== "system");
-  if (!filtered.length) return;
+  if (!filtered.length) return null;
 
   const session: DailySession = {
     id: `session-${Date.now()}`,
@@ -229,6 +229,51 @@ export async function archiveSession(
   const sessions = localGet<DailySession[]>(key, []);
   sessions.push(session);
   localSet(key, sessions);
+  return session.id;
+}
+
+// Attach a 1-2 sentence summary to an archived session. Produced async by
+// /api/summarize after archiveSession returns so save-to-memory doesn't
+// block the UI on an LLM round-trip.
+export async function updateSessionSummary(
+  sessionId: string,
+  summary: string,
+): Promise<void> {
+  if (!summary) return;
+  const sb = getSupabase();
+  if (sb) {
+    const { error } = await sb
+      .from("bunny_sessions")
+      .update({ summary })
+      .eq("family_id", FAMILY_ID)
+      .eq("id", sessionId);
+    if (error) {
+      console.warn("[bunny] summary update failed:", error.message);
+    }
+  }
+  // Local cache only stores transcript; summary lives in Supabase.
+}
+
+// Fetch the N most-recent non-empty session summaries to inject into the
+// prompt. Most-recent first. Returns empty when Supabase is unreachable or
+// the family is too new.
+export async function getRecentSummaries(limit = 3): Promise<string[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+
+  const { data, error } = await sb
+    .from("bunny_sessions")
+    .select("summary, session_date, ended_at")
+    .eq("family_id", FAMILY_ID)
+    .not("summary", "is", null)
+    .order("session_date", { ascending: false })
+    .order("ended_at", { ascending: false })
+    .limit(limit);
+
+  if (error || !data) return [];
+  return (data as Array<{ summary: string | null }>)
+    .map((row) => (row.summary ?? "").trim())
+    .filter((s) => s.length > 0);
 }
 
 export async function saveLastSessionCloser(

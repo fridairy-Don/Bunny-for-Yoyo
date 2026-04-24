@@ -243,3 +243,53 @@ export async function extractMemoriesFromTurns(
 
   return memories;
 }
+
+// Condense an entire saved session into 1-2 sentences that Bunny can recall
+// on the next visit. Targeted at emotional through-line, not comprehensive —
+// "Yoyo was proud she climbed the rope today. I told her the rope was
+// cheering her on." not a play-by-play.
+export async function summarizeTurnsAsSession(
+  turns: ConversationTurn[],
+): Promise<string> {
+  const env = getProviderEnv();
+
+  const transcript = turns
+    .filter((turn) => turn.role !== "system")
+    .map((turn) => `${turn.role === "user" ? "Yoyo" : "Bunny"}: ${turn.text}`)
+    .join("\n");
+
+  if (!transcript.trim()) return "";
+
+  const instruction = [
+    "You are helping Bunny, a plush companion for a six-year-old named Yoyo, carry the emotional thread of each talk into the next one.",
+    "Produce ONE short summary (1–2 sentences, under 40 words total) from Bunny's perspective, written as if Bunny is remembering the talk.",
+    "Focus on: how Yoyo felt, the small specific things she mentioned (people, places, preferences), and any tender beat between her and Bunny.",
+    "Do NOT write a play-by-play or list topics. Skip meta commentary. No quotation marks.",
+    "Example: 'Yoyo was a little sleepy and told me about a cat named Mochi at school. I reminded her that Mochi was lucky to have a gentle friend like her.'",
+    "Output only the summary text itself — no prefix, no JSON, no stage directions.",
+  ].join("\n\n");
+
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.openRouterApiKey}`,
+      "Content-Type": "application/json",
+      ...getOpenRouterHeaders(env),
+    },
+    body: JSON.stringify({
+      model: env.openRouterModel,
+      temperature: 0.4,
+      messages: [
+        { role: "system", content: instruction },
+        { role: "user", content: `Conversation:\n${transcript}` },
+      ],
+    }),
+  });
+
+  await expectOk(response, "OpenRouter summarize failed.");
+  const payload = await response.json();
+  const raw = (payload?.choices?.[0]?.message?.content ?? "").toString().trim();
+  // Strip any surrounding quotes the model occasionally wraps the reply in.
+  return raw.replace(/^["'`]+|["'`]+$/g, "").trim();
+}
+
