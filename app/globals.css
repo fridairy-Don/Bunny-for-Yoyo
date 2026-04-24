@@ -1507,6 +1507,247 @@ body.sleeping .mic {
   }
 }
 
+/* ─── parent-only pages (setup + dashboard) ──────────────────────────── */
+/* Deliberately utilitarian — this area is not for the child. */
+.parent-shell {
+  min-height: 100vh;
+  background: oklch(0.97 0.01 70);
+  color: oklch(0.25 0.04 40);
+  font-family: "Inter", system-ui, sans-serif;
+  padding: 40px 20px 80px;
+}
+.parent-page {
+  max-width: 720px;
+  margin: 0 auto;
+}
+.parent-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+  margin-bottom: 28px;
+}
+.parent-header h1 {
+  font-family: "Fraunces", serif;
+  font-size: 28px;
+  font-weight: 500;
+  color: var(--rose, #b56a5a);
+  margin-bottom: 6px;
+}
+.parent-header p {
+  font-size: 14px;
+  color: oklch(0.45 0.02 40);
+  max-width: 480px;
+  line-height: 1.5;
+}
+.parent-back {
+  font-size: 13px;
+  color: var(--rose, #b56a5a);
+  text-decoration: none;
+  white-space: nowrap;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid oklch(0.9 0.02 40);
+}
+.parent-back:hover {
+  background: oklch(0.95 0.02 40);
+}
+.parent-form {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+.parent-section {
+  background: white;
+  border-radius: 14px;
+  padding: 22px 22px 18px;
+  border: 1px solid oklch(0.92 0.01 40);
+}
+.parent-section-head h2 {
+  font-family: "Fraunces", serif;
+  font-style: italic;
+  font-size: 19px;
+  font-weight: 500;
+  color: var(--rose, #b56a5a);
+}
+.parent-section-head p {
+  font-size: 13px;
+  color: oklch(0.5 0.02 40);
+  margin-top: 2px;
+  margin-bottom: 14px;
+}
+.parent-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.parent-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.parent-field-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: oklch(0.35 0.03 40);
+}
+.parent-field-input,
+.parent-field-textarea {
+  font-family: inherit;
+  font-size: 14px;
+  padding: 9px 12px;
+  border: 1px solid oklch(0.9 0.01 40);
+  border-radius: 8px;
+  background: oklch(0.99 0.005 40);
+  color: inherit;
+  outline: none;
+  transition: border-color 0.15s ease;
+  resize: vertical;
+}
+.parent-field-input::placeholder,
+.parent-field-textarea::placeholder {
+  color: oklch(0.72 0.01 40);
+}
+.parent-field-input:focus,
+.parent-field-textarea:focus {
+  border-color: var(--rose, #b56a5a);
+}
+.parent-submit-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+  padding-top: 10px;
+}
+.parent-submit {
+  background: var(--rose, #b56a5a);
+  color: white;
+  border: none;
+  padding: 11px 26px;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.12s ease;
+}
+.parent-submit:hover:not(:disabled) {
+  background: oklch(0.5 0.11 30);
+}
+.parent-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.parent-error {
+  color: oklch(0.5 0.14 25);
+  font-size: 13px;
+}
+.parent-hint {
+  color: oklch(0.5 0.02 40);
+  font-size: 13px;
+  font-style: italic;
+}
+
+/* parent dashboard additional bits */
+.parent-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 28px;
+}
+.parent-kpi {
+  background: white;
+  border: 1px solid oklch(0.92 0.01 40);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+.parent-kpi-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: oklch(0.55 0.02 40);
+}
+.parent-kpi-value {
+  font-family: "Fraunces", serif;
+  font-size: 22px;
+  margin-top: 4px;
+  color: var(--rose, #b56a5a);
+}
+.parent-pane {
+  background: white;
+  border: 1px solid oklch(0.92 0.01 40);
+  border-radius: 14px;
+  padding: 20px 22px;
+  margin-bottom: 22px;
+}
+.parent-pane h2 {
+  font-family: "Fraunces", serif;
+  font-style: italic;
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--rose, #b56a5a);
+  margin-bottom: 12px;
+}
+.parent-memory-row {
+  display: grid;
+  grid-template-columns: 100px 1fr auto;
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid oklch(0.95 0.01 40);
+  align-items: flex-start;
+}
+.parent-memory-row:last-child {
+  border-bottom: none;
+}
+.parent-memory-meta {
+  font-size: 11px;
+  color: oklch(0.5 0.02 40);
+  text-transform: lowercase;
+}
+.parent-memory-content {
+  font-size: 13px;
+  line-height: 1.55;
+}
+.parent-memory-delete {
+  background: none;
+  border: none;
+  color: oklch(0.65 0.05 25);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 6px;
+  line-height: 1;
+}
+.parent-memory-delete:hover {
+  color: oklch(0.5 0.14 25);
+}
+.parent-summary-card {
+  background: oklch(0.98 0.01 60);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: oklch(0.35 0.03 40);
+}
+.parent-summary-card-date {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--rose, #b56a5a);
+  margin-bottom: 4px;
+}
+.parent-export {
+  background: oklch(0.94 0.02 40);
+  border: none;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--rose, #b56a5a);
+}
+.parent-export:hover {
+  background: oklch(0.9 0.04 30);
+}
+
 /* ─── error boundary fallback ────────────────────────────────────────── */
 .error-fallback {
   position: fixed;

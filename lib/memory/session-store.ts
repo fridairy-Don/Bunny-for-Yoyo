@@ -364,6 +364,108 @@ export async function updateSessionSummary(
   // Local cache only stores transcript; summary lives in Supabase.
 }
 
+export type SessionSummaryCard = {
+  id: string;
+  sessionDate: string;
+  endedAt: number;
+  summary: string;
+};
+
+// Lists recent sessions that actually have a summary, newest first, with
+// enough metadata for the /parent dashboard to render a card timeline.
+export async function getRecentSessionSummaries(
+  limit = 20,
+): Promise<SessionSummaryCard[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from("bunny_sessions")
+    .select("id, ended_at, session_date, summary")
+    .eq("family_id", FAMILY_ID)
+    .not("summary", "is", null)
+    .order("session_date", { ascending: false })
+    .order("ended_at", { ascending: false })
+    .limit(limit);
+  if (error || !data) return [];
+  return (data as Array<{
+    id: string;
+    ended_at: string;
+    session_date: string;
+    summary: string | null;
+  }>)
+    .map((row) => ({
+      id: row.id,
+      sessionDate: row.session_date,
+      endedAt: new Date(row.ended_at).getTime(),
+      summary: (row.summary ?? "").trim(),
+    }))
+    .filter((c) => c.summary.length > 0);
+}
+
+// Raw session list (summaries may be null) — used for the Polaroid wall
+// which shows every saved session regardless of whether the summary has
+// arrived back from the background /api/summarize request.
+export type SessionCard = {
+  id: string;
+  sessionDate: string;
+  endedAt: number;
+  startedAt: number;
+  summary: string | null;
+  turnCount: number;
+  distilledIds: string[];
+};
+
+export async function getAllSessions(limit = 60): Promise<SessionCard[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from("bunny_sessions")
+    .select("id, started_at, ended_at, session_date, summary, distilled_ids, turns")
+    .eq("family_id", FAMILY_ID)
+    .order("session_date", { ascending: false })
+    .order("ended_at", { ascending: false })
+    .limit(limit);
+  if (error || !data) return [];
+  return (data as Array<{
+    id: string;
+    started_at: string;
+    ended_at: string;
+    session_date: string;
+    summary: string | null;
+    distilled_ids: string[] | null;
+    turns: unknown;
+  }>).map((row) => ({
+    id: row.id,
+    sessionDate: row.session_date,
+    startedAt: new Date(row.started_at).getTime(),
+    endedAt: new Date(row.ended_at).getTime(),
+    summary: row.summary?.trim() || null,
+    distilledIds: row.distilled_ids ?? [],
+    turnCount: Array.isArray(row.turns) ? row.turns.length : 0,
+  }));
+}
+
+// Fetch one full session including transcript (used when a polaroid is
+// clicked to expand).
+export async function getSessionById(id: string): Promise<DailySession | null> {
+  const sb = getSupabase();
+  if (!sb) return null;
+  const { data, error } = await sb
+    .from("bunny_sessions")
+    .select("id, started_at, ended_at, turns, distilled_ids")
+    .eq("family_id", FAMILY_ID)
+    .eq("id", id)
+    .maybeSingle();
+  if (error || !data) return null;
+  return {
+    id: data.id,
+    startedAt: new Date(data.started_at).getTime(),
+    endedAt: new Date(data.ended_at).getTime(),
+    turns: data.turns as ConversationTurn[],
+    distilledIds: (data.distilled_ids ?? []) as string[],
+  };
+}
+
 // Fetch the N most-recent non-empty session summaries to inject into the
 // prompt. Most-recent first. Returns empty when Supabase is unreachable or
 // the family is too new.
