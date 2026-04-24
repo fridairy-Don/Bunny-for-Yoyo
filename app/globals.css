@@ -622,9 +622,12 @@ button {
   overflow-y: auto;
   overflow-x: hidden;
   padding: 8px 6px 22px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  /* Plain block flow instead of `display: flex; flex-direction: column`.
+     The old flex setup let Chromium stretch one of the .bubble-row items
+     vertically to absorb leftover column-flex space, producing a gaping
+     empty slot between bubbles. Block flow does not have that pitfall —
+     each row takes its natural content height and sits above the next. */
+  display: block;
   -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 16px, #000 calc(100% - 24px), transparent 100%);
   mask-image: linear-gradient(180deg, transparent 0, #000 16px, #000 calc(100% - 24px), transparent 100%);
   scrollbar-width: thin;
@@ -643,11 +646,9 @@ button {
   align-items: flex-start;
   gap: 10px;
   margin-bottom: 18px;
-  /* No fade-in animation here: the caption's own exit animation already
-     covers the "flight" feel. If the row were invisible during entry it
-     would reserve space first and only then materialise, producing a big
-     empty gap in the chat log for ~0.55s. Appearing instantly gives a
-     clean "caption flies → bubble lands" hand-off. */
+  /* No fade-in animation: the caption's own exit animation already covers
+     the "flight" feel. An invisible-then-appear row would reserve space
+     first and only materialise later, producing a ghost gap. */
 }
 .bubble-row:last-child {
   margin-bottom: 4px;
@@ -715,7 +716,7 @@ button {
   border-bottom: 1px solid oklch(0.88 0.012 55 / 0.7);
   transform: rotate(45deg);
 }
-.bubble-row.bunny .bubble::before {
+.bubble-row.bot .bubble::before {
   left: -7px;
 }
 .bubble-row.user .bubble::before {

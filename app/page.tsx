@@ -1352,7 +1352,7 @@ function ChatLogScroll({
         return (
           <div
             key={turn.id}
-            className={`bubble-row ${isUser ? "user" : "bunny"}`}
+            className={`bubble-row ${isUser ? "user" : "bot"}`}
           >
             {isUser ? (
               <div className="chat-avatar user-av" aria-hidden="true">
