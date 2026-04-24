@@ -1348,14 +1348,25 @@ function ChatLogScroll({
     <div className="chatlog-scroll" ref={scrollRef}>
       {turns.map((turn) => {
         if (turn.role === "system") return null;
-        const who = turn.role === "assistant" ? "Bunny" : "You";
+        const isUser = turn.role === "user";
         return (
           <div
             key={turn.id}
-            className={["bubble", turn.role === "user" ? "user" : ""].filter(Boolean).join(" ")}
+            className={`bubble-row ${isUser ? "user" : "bunny"}`}
           >
-            <span className="who">{who}</span>
-            {turn.text}
+            {isUser ? (
+              <div className="chat-avatar user-av" aria-hidden="true">
+                Y
+              </div>
+            ) : (
+              <div
+                className="chat-avatar bunny-av"
+                aria-hidden="true"
+                role="img"
+                aria-label="Bunny"
+              />
+            )}
+            <div className={`bubble ${isUser ? "user" : ""}`}>{turn.text}</div>
           </div>
         );
       })}

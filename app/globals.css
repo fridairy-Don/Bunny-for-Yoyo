@@ -335,10 +335,15 @@ button {
   border-radius: 6px;
 }
 .caption.has-karaoke .word {
+  /* Give every word the same padding/margin in karaoke mode so the line
+     never re-wraps when a word becomes current. Only colour + background
+     + scale change between states; the inline box size stays constant. */
   color: oklch(0.55 0.02 50);
   opacity: 1;
   animation: none;
   transform: none;
+  padding: 2px 6px;
+  margin: 0 1px;
 }
 .caption.has-karaoke .word.spoken {
   color: oklch(0.72 0.012 50);
@@ -350,8 +355,6 @@ button {
   transform: scale(1.14);
   background: oklch(0.93 0.09 30 / 0.85);
   text-shadow: 0 1px 0 oklch(1 0 0 / 0.6);
-  padding: 2px 8px;
-  margin: 0 2px;
   box-shadow: 0 2px 8px oklch(0.78 0.12 20 / 0.35);
 }
 @keyframes wordIn {
@@ -634,48 +637,107 @@ button {
   background: oklch(0.85 0.02 50 / 0.5);
   border-radius: 4px;
 }
+/* storybook row: avatar + speech bubble with a tail pointing at the avatar */
+.bubble-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 18px;
+  opacity: 0;
+  transform: translateY(6px);
+  animation: bubbleRowIn 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+.bubble-row:last-child {
+  margin-bottom: 4px;
+}
+.bubble-row.user {
+  flex-direction: row-reverse;
+}
+@keyframes bubbleRowIn {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.chat-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 3px 8px oklch(0.35 0.04 30 / 0.12);
+  border: 2px solid oklch(1 0 0 / 0.9);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  position: relative;
+  top: 4px;
+}
+.chat-avatar.bunny-av {
+  background: oklch(0.99 0.008 70);
+  background-image: url("/assets/bunny/bunny_idle.png");
+  background-size: 160% auto;
+  background-position: 50% 18%;
+  background-repeat: no-repeat;
+}
+.chat-avatar.user-av {
+  background: linear-gradient(135deg, oklch(0.9 0.07 30) 0%, oklch(0.94 0.05 50) 100%);
+  color: oklch(0.35 0.05 30);
+  font-family: "Fraunces", serif;
+  font-style: italic;
+  font-weight: 500;
+  font-size: 20px;
+  letter-spacing: 0;
+}
 .bubble {
-  max-width: 92%;
-  padding: 14px 18px 15px;
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: calc(100% - 56px);
+  padding: 13px 17px 14px;
   font-family: "Quicksand", "Inter", system-ui, sans-serif;
   font-weight: 500;
-  font-size: 18px;
+  font-size: 20px;
   line-height: 1.6;
-  background: oklch(1 0 0 / 0.88);
+  background: oklch(1 0 0 / 0.95);
   color: var(--ink);
   border: 1px solid oklch(0.88 0.012 55 / 0.7);
-  border-radius: 16px;
-  box-shadow: 0 4px 14px oklch(0.35 0.04 30 / 0.07);
+  border-radius: 18px;
+  box-shadow: 0 5px 16px oklch(0.35 0.04 30 / 0.09);
   text-wrap: pretty;
   backdrop-filter: blur(6px);
-  opacity: 0;
-  transform: translateX(-8px) scale(0.96);
-  animation: bubbleIn 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
-  position: relative;
   letter-spacing: 0.003em;
 }
+/* little tail on the bubble pointing at the avatar */
+.bubble::before {
+  content: "";
+  position: absolute;
+  top: 14px;
+  width: 12px;
+  height: 12px;
+  background: inherit;
+  border-left: 1px solid oklch(0.88 0.012 55 / 0.7);
+  border-bottom: 1px solid oklch(0.88 0.012 55 / 0.7);
+  transform: rotate(45deg);
+}
+.bubble-row.bunny .bubble::before {
+  left: -7px;
+}
+.bubble-row.user .bubble::before {
+  right: -7px;
+  transform: rotate(-135deg);
+}
 .bubble.user {
-  align-self: flex-end;
-  background: oklch(0.96 0.04 55 / 0.85);
-  border-color: oklch(0.88 0.04 50 / 0.7);
+  background: oklch(0.96 0.05 55 / 0.95);
+  border-color: oklch(0.88 0.05 50 / 0.7);
   color: var(--ink);
 }
 .bubble.saved {
   border-color: var(--rose-soft);
   box-shadow: 0 0 0 3px oklch(0.95 0.04 10 / 0.5), 0 4px 12px oklch(0.35 0.04 30 / 0.06);
 }
+/* .who label no longer used — avatars carry speaker identity now */
 .bubble .who {
-  font-family: "Inter", sans-serif;
-  font-style: normal;
-  font-size: 10px;
-  letter-spacing: 0.24em;
-  text-transform: uppercase;
-  color: var(--ink-whisper);
-  margin-bottom: 5px;
-  display: block;
-}
-.bubble.user .who {
-  text-align: right;
+  display: none;
 }
 /* bubble-level save removed — session-level save lives in chatlog header */
 
