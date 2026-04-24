@@ -155,6 +155,10 @@ export default function Home() {
   const [currentTrack, setCurrentTrack] = useState<number>(-1);
   const [playing, setPlaying] = useState(false);
   const [audioVolume, setAudioVolume] = useState(0.45);
+  const [playMode, setPlayMode] = useState<"repeat-one" | "shuffle" | "sequential">(
+    "repeat-one",
+  );
+  const [hasAutoStarted, setHasAutoStarted] = useState(false);
   const [audioError, setAudioError] = useState(false);
   const [localTracks, setLocalTracks] = useState<Array<LocalTrack & { objectUrl: string }>>([]);
   const [uploading, setUploading] = useState(false);
@@ -288,17 +292,40 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // advance to next track on end — separate effect so TRACKS closure is fresh
+  // advance behaviour on end depends on the current play mode.
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
+    audio.loop = playMode === "repeat-one";
     const onEnded = () => {
       if (TRACKS.length === 0) return;
+      if (playMode === "repeat-one") {
+        // audio.loop handles this, but some browsers still fire ended once.
+        audio.currentTime = 0;
+        audio.play().catch(() => undefined);
+        return;
+      }
+      if (playMode === "shuffle") {
+        if (TRACKS.length === 1) {
+          audio.currentTime = 0;
+          audio.play().catch(() => undefined);
+          return;
+        }
+        setCurrentTrack((idx) => {
+          let next = idx;
+          while (next === idx) {
+            next = Math.floor(Math.random() * TRACKS.length);
+          }
+          return next;
+        });
+        return;
+      }
+      // sequential
       setCurrentTrack((idx) => (idx + 1) % TRACKS.length);
     };
     audio.addEventListener("ended", onEnded);
     return () => audio.removeEventListener("ended", onEnded);
-  }, [TRACKS.length]);
+  }, [TRACKS.length, playMode]);
 
   // drive audio output from currentTrack + playing state. Only touches
   // audio.src when the actual track id changes so a simple pause/resume
@@ -329,6 +356,30 @@ export default function Home() {
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = audioVolume;
   }, [audioVolume]);
+
+  // Start the first track on the user's first interaction with the page.
+  // Browsers block silent autoplay, but any click / key / tap within the
+  // document unblocks the <audio> element — we latch on that gesture.
+  useEffect(() => {
+    if (hasAutoStarted) return;
+    if (TRACKS.length === 0) return;
+    const start = () => {
+      if (hasAutoStarted) return;
+      setHasAutoStarted(true);
+      setCurrentTrack((idx) => (idx >= 0 ? idx : 0));
+      setPlaying(true);
+      cleanup();
+    };
+    const cleanup = () => {
+      window.removeEventListener("pointerdown", start);
+      window.removeEventListener("keydown", start);
+      window.removeEventListener("touchstart", start);
+    };
+    window.addEventListener("pointerdown", start, { once: true });
+    window.addEventListener("keydown", start, { once: true });
+    window.addEventListener("touchstart", start, { once: true });
+    return cleanup;
+  }, [hasAutoStarted, TRACKS.length]);
 
   // load user-uploaded local library on mount
   useEffect(() => {
@@ -610,6 +661,15 @@ export default function Home() {
     setCurrentTrack((i) => (i + 1) % TRACKS.length);
     setPlaying(true);
   };
+
+  const cyclePlayMode = () => {
+    setPlayMode((m) =>
+      m === "repeat-one" ? "shuffle" : m === "shuffle" ? "sequential" : "repeat-one",
+    );
+  };
+
+  const playModeLabel =
+    playMode === "repeat-one" ? "repeat one" : playMode === "shuffle" ? "shuffle" : "in order";
 
   const nowPlayingText =
     currentTrack < 0 || currentTrack >= TRACKS.length
@@ -1014,6 +1074,37 @@ export default function Home() {
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="M5 4l10 8-10 8zM19 4v16" />
             </svg>
+          </button>
+          <button
+            className="play-mode"
+            onClick={cyclePlayMode}
+            aria-label={`play mode: ${playModeLabel}`}
+            title={playModeLabel}
+          >
+            {playMode === "repeat-one" ? (
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 2l4 4-4 4" />
+                <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+                <path d="M7 22l-4-4 4-4" />
+                <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+                <text x="12" y="14" textAnchor="middle" fontSize="7" fontWeight="700" fill="currentColor" stroke="none">1</text>
+              </svg>
+            ) : playMode === "shuffle" ? (
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M16 3h5v5" />
+                <path d="M4 20L21 3" />
+                <path d="M21 16v5h-5" />
+                <path d="M15 15l6 6" />
+                <path d="M4 4l5 5" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 2l4 4-4 4" />
+                <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+                <path d="M7 22l-4-4 4-4" />
+                <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+              </svg>
+            )}
           </button>
           <span className="t">
             {audioError && currentTrack >= 0

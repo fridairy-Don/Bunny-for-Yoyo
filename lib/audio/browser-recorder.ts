@@ -35,7 +35,18 @@ class BrowserAudioRecorder implements AudioRecorder {
     }
 
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Disable echoCancellation / autoGainControl / noiseSuppression:
+      // each of those flips the browser into a voice-call audio session which
+      // briefly ducks or pauses HTMLAudioElement playback when the mic
+      // opens/closes — users hear background music stutter on every record
+      // start/stop. Whisper handles the slightly rawer input fine.
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          autoGainControl: false,
+          noiseSuppression: false,
+        },
+      });
       this.chunks = [];
       this.startedAt = Date.now();
       this.startProblem = null;

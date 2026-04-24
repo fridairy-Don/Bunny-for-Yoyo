@@ -328,22 +328,31 @@ button {
   transform: translateY(4px);
   animation: wordIn 0.55s ease forwards;
   white-space: pre;
-  transition: color 0.18s ease, font-weight 0.18s ease, transform 0.22s ease;
+  transition: color 0.18s ease, font-weight 0.18s ease, transform 0.22s ease,
+    text-shadow 0.18s ease, background-color 0.18s ease;
   color: var(--ink);
+  padding: 0 2px;
+  border-radius: 6px;
 }
 .caption.has-karaoke .word {
-  color: var(--ink);
+  color: oklch(0.55 0.02 50);
   opacity: 1;
   animation: none;
   transform: none;
 }
 .caption.has-karaoke .word.spoken {
-  color: var(--ink-whisper);
+  color: oklch(0.72 0.012 50);
+  opacity: 0.75;
 }
 .caption.has-karaoke .word.current {
-  color: var(--rose);
-  font-weight: 600;
-  transform: scale(1.03);
+  color: oklch(0.25 0.01 50);
+  font-weight: 700;
+  transform: scale(1.14);
+  background: oklch(0.93 0.09 30 / 0.85);
+  text-shadow: 0 1px 0 oklch(1 0 0 / 0.6);
+  padding: 2px 8px;
+  margin: 0 2px;
+  box-shadow: 0 2px 8px oklch(0.78 0.12 20 / 0.35);
 }
 @keyframes wordIn {
   to {
@@ -1003,6 +1012,13 @@ button {
 .player-bar .play:hover {
   background: oklch(0.72 0.14 10);
   color: oklch(1 0 0);
+}
+.player-bar .play-mode {
+  color: var(--ink-whisper);
+}
+.player-bar .play-mode:hover {
+  color: var(--rose);
+  background: oklch(0.95 0.04 10 / 0.6);
 }
 
 .volume-row {
