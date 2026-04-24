@@ -4,43 +4,32 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBunnyCompanion } from "../lib/state/use-bunny-companion";
 import { useBunnyConversation } from "../lib/conversation/use-bunny-conversation";
 import {
-  addDistilledMemories,
-  archiveSession,
   findSessionContainingMemory,
   getDistilledMemories,
   getLastSessionCloser,
   removeDistilledMemory,
-  saveLastSessionCloser,
   wipeAllMemory,
   type DailySession,
   type DistilledMemory,
   type SessionCloser,
 } from "../lib/memory/session-store";
+import { useSessionSave } from "../lib/memory/use-session-save";
 import { useMusicPlayer } from "../lib/music/use-music-player";
 import { useCaptionStream } from "../lib/conversation/use-caption-stream";
+import { getChildFriendlyErrorCaption } from "../lib/conversation/error-caption";
 import { useAmbient } from "../lib/ambient/use-ambient";
-
-type MemoryGroup = {
-  dateKey: string;
-  dateLabel: string;
-  entries: DistilledMemory[];
-};
-
-type SaveState = "idle" | "saving" | "saved" | "error";
-
-function dateKeyFromMemory(m: DistilledMemory) {
-  if (m.sessionDate) return m.sessionDate;
-  return new Date(m.createdAt).toISOString().slice(0, 10);
-}
-
-function formatDateLabel(key: string) {
-  const today = new Date().toISOString().slice(0, 10);
-  const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
-  if (key === today) return "today";
-  if (key === yesterday) return "yesterday";
-  const [y, m, d] = key.split("-");
-  return `${y}.${m}.${d}`;
-}
+import { MusicDrawer } from "../components/drawer/music-drawer";
+import {
+  MemoryDrawer,
+  type MemoryGroup,
+} from "../components/drawer/memory-drawer";
+import { dateKeyFromMemory } from "../components/memory/memory-detail";
+import { Ambient } from "../components/chrome/ambient";
+import { HeaderChrome } from "../components/chrome/header-chrome";
+import { CornerControls } from "../components/corner/corner-controls";
+import { BunnyStage } from "../components/stage/bunny-stage";
+import { CaptionZone } from "../components/stage/caption-zone";
+import { ChatlogPanel } from "../components/chatlog/chatlog-panel";
 
 function groupMemoriesByDate(memories: DistilledMemory[]): MemoryGroup[] {
   const buckets = new Map<string, DistilledMemory[]>();
@@ -53,9 +42,18 @@ function groupMemoriesByDate(memories: DistilledMemory[]): MemoryGroup[] {
   const sortedKeys = Array.from(buckets.keys()).sort((a, b) => b.localeCompare(a));
   return sortedKeys.map((key) => ({
     dateKey: key,
-    dateLabel: formatDateLabel(key),
+    dateLabel: formatDateLabelFromKey(key),
     entries: buckets.get(key) ?? [],
   }));
+}
+
+function formatDateLabelFromKey(key: string) {
+  const today = new Date().toISOString().slice(0, 10);
+  const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+  if (key === today) return "today";
+  if (key === yesterday) return "yesterday";
+  const [y, m, d] = key.split("-");
+  return `${y}.${m}.${d}`;
 }
 
 export default function Home() {
@@ -100,8 +98,15 @@ export default function Home() {
     status,
   );
 
-  // session save flow
-  const [saveState, setSaveState] = useState<SaveState>("idle");
+  // session save flow — distill + archive + refresh last-closer
+  const sessionSave = useSessionSave({
+    getTurns: () => turns,
+    getExistingMemories: () => memoriesRef.current.map((m) => m.content),
+    onAccepted: (accepted) => setMemories((current) => [...accepted, ...current]),
+    onCloserUpdated: (closer) => {
+      lastCloserRef.current = closer;
+    },
+  });
 
   useEffect(() => {
     memoriesRef.current = memories;
@@ -173,32 +178,8 @@ export default function Home() {
     return "Bunny is here";
   }, [status, asleep]);
 
-  // child-friendly error caption. Match on substrings because upstream error
-  // messages come from several layers (recorder, STT API, LLM) with slightly
-  // different spellings like "microphone_permission_denied" or "silent_audio_capture".
-  const errorCaption = useMemo(() => {
-    if (!error) return null;
-    const e = error.toLowerCase();
-    if (e.includes("permission") && e.includes("denied")) {
-      return "I can't hear you yet — please let the little mic listen.";
-    }
-    if (e.includes("silent") || e.includes("empty_audio")) {
-      return "Hmm, I didn't catch that. Try saying it a little louder.";
-    }
-    if (e.includes("unsupported")) {
-      return "This place doesn't have ears. Try a different browser.";
-    }
-    if (e.includes("recorder")) {
-      return "My ears are shy. Tap the mic once more.";
-    }
-    if (e.includes("stt") || e.includes("transcription")) {
-      return "My ears got fuzzy. Tap the mic and try again.";
-    }
-    if (e.includes("chat") || e.includes("llm")) {
-      return "I lost my words for a second. Tap the mic and try again.";
-    }
-    return "Something got tangled. Let's try one more time.";
-  }, [error]);
+  // child-friendly error caption (see error-caption.ts for mapping rules)
+  const errorCaption = useMemo(() => getChildFriendlyErrorCaption(error), [error]);
 
   // caption text + role (error overrides displayed turn)
   const captionText = errorCaption ?? displayedTurn?.text ?? "";
@@ -213,38 +194,6 @@ export default function Home() {
     captionRole === "assistant" &&
     status === "speaking" &&
     displayedTurn?.id === subtitle?.id;
-
-  const captionClassName = ["caption"];
-  if (captionPhase === "exiting" && !errorCaption) captionClassName.push("exiting");
-  if (captionRole === "user") captionClassName.push("is-user");
-  if (karaokeActive) captionClassName.push("has-karaoke");
-
-  // Split on any whitespace (spaces, newlines, tabs) to match the server-side
-  // word-timing tokenizer exactly. If we split only on " ", a word that sits
-  // next to a paragraph break "...to me.\n\nI stay..." becomes one giant
-  // "me.\n\nI" token whose inline-block renders across two lines and whose
-  // pink karaoke pill visibly engulfs BOTH words. Splitting on \s+ keeps each
-  // real word as its own span and keeps the client's index in sync with
-  // ElevenLabs' character alignment.
-  const captionWords = useMemo(
-    () => captionText.split(/\s+/).filter(Boolean),
-    [captionText],
-  );
-  const currentWordRef = useRef<HTMLSpanElement | null>(null);
-
-  // As each word lights up, gently scroll it into view so long replies keep
-  // the active word visible inside the fixed-height caption zone.
-  useEffect(() => {
-    if (!karaokeActive) return;
-    if (activeWordIndex < 0) return;
-    const el = currentWordRef.current;
-    if (!el) return;
-    try {
-      el.scrollIntoView({ block: "center", behavior: "smooth", inline: "nearest" });
-    } catch {
-      // older browsers
-    }
-  }, [karaokeActive, activeWordIndex, captionKey]);
 
   // chatlog turns: exclude both the turn currently hosted in caption AND the
   // turn that just arrived as `subtitle` (which is about to become displayed).
@@ -283,55 +232,10 @@ export default function Home() {
   const onClearChat = () => {
     clearTurns();
     clearCaption();
-    setSaveState("idle");
+    sessionSave.reset();
   };
 
   const saveButtonEnabled = turns.filter((t) => t.role !== "system").length >= 2;
-
-  const onSaveSession = async () => {
-    if (saveState === "saving") return;
-    if (!saveButtonEnabled) return;
-    setSaveState("saving");
-    try {
-      const payloadTurns = turns.filter((t) => t.role !== "system");
-      const existingMemoryContents = memoriesRef.current.map((m) => m.content);
-      const response = await fetch("/api/distill", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ turns: payloadTurns, existingMemories: existingMemoryContents }),
-      });
-      const data = await response.json();
-      const extracted: Array<{ type: string; content: string; importance: number }> = data?.memories ?? [];
-
-      const now = Date.now();
-      const todayStr = new Date().toISOString().slice(0, 10);
-      const candidateMemories: DistilledMemory[] = extracted.map((entry, i) => ({
-        id: `mem-${now}-${i}`,
-        createdAt: now,
-        type: (entry.type as DistilledMemory["type"]) ?? "special_memory",
-        content: entry.content,
-        importance: entry.importance ?? 0.7,
-        source: "session",
-        sessionDate: todayStr,
-      }));
-
-      const accepted = await addDistilledMemories(candidateMemories);
-      if (accepted.length) {
-        setMemories((current) => [...accepted, ...current]);
-      }
-      await archiveSession(payloadTurns, accepted.map((m) => m.id));
-
-      // capture the tail of this session so the next opening can continue from it
-      await saveLastSessionCloser(payloadTurns, 4);
-      lastCloserRef.current = await getLastSessionCloser();
-
-      setSaveState("saved");
-      window.setTimeout(() => setSaveState("idle"), 2400);
-    } catch {
-      setSaveState("error");
-      window.setTimeout(() => setSaveState("idle"), 2400);
-    }
-  };
 
   const openMemoryDetail = useCallback(async (mem: DistilledMemory) => {
     const dateKey = dateKeyFromMemory(mem);
@@ -360,656 +264,98 @@ export default function Home() {
     }
   }, []);
 
+  const handleFactoryReset = useCallback(async () => {
+    setResetConfirming(false);
+    try {
+      await wipeAllMemory();
+    } catch (err) {
+      console.warn("[bunny] wipe failed:", err);
+    }
+    setMemories([]);
+    lastCloserRef.current = null;
+    clearTurns();
+    clearCaption();
+    setShowWipeBanner(true);
+    window.setTimeout(() => setShowWipeBanner(false), 2800);
+  }, [clearTurns, clearCaption]);
+
   const memoryGroups = useMemo(() => groupMemoriesByDate(memories), [memories]);
 
-  const saveLabel = (() => {
-    if (saveState === "saving") return "saving…";
-    if (saveState === "saved") return "saved";
-    if (saveState === "error") return "try again";
-    return "save to memory";
-  })();
+  const captionBlock = (
+    <CaptionZone
+      text={captionText}
+      role={captionRole}
+      keyId={captionKey}
+      phase={captionPhase}
+      karaokeActive={karaokeActive}
+      activeWordIndex={activeWordIndex}
+      hasError={!!errorCaption}
+    />
+  );
 
   return (
     <>
-      <div className="world" />
-      <div className="motes">
-        {motes.map((m, i) => (
-          <div
-            key={i}
-            className="mote"
-            style={{
-              left: m.left,
-              width: `${m.size}px`,
-              height: `${m.size}px`,
-              animationDuration: `${m.duration}s`,
-              animationDelay: `${m.delay}s`,
-              opacity: m.opacity,
-            }}
-          />
-        ))}
-      </div>
-      <div className="vignette" />
-      <div className="grain" />
+      <Ambient motes={motes} />
 
-      <header className="chrome">
-        <div className="wordmark">
-          <span className="dot" />
-          <span className="status">{statusLabel}</span>
-        </div>
-        <div className="meta">
-          <div className="meta-line">
-            <span>{timeLabel}</span>
-            <span className="sep" />
-            <span>day {clientReady ? dayNumber : 1}</span>
-          </div>
-          <div className="meta-sub">{timeWarm}</div>
-        </div>
-      </header>
+      <HeaderChrome
+        statusLabel={statusLabel}
+        timeLabel={timeLabel}
+        timeWarm={timeWarm}
+        dayNumber={dayNumber}
+        clientReady={clientReady}
+      />
 
-      <aside className={`chatlog ${hasChat ? "show" : ""}`} aria-label="Conversation">
-        <div className="chatlog-head">
-          <span>today · our talk</span>
-          <span className="actions">
-            <button
-              className={`save-session ${saveState === "saved" ? "saved" : ""}`}
-              onClick={onSaveSession}
-              disabled={!saveButtonEnabled || saveState === "saving"}
-              title="save today's talk to memory"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill={saveState === "saved" ? "currentColor" : "none"}
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M19 21 12 16l-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
-              </svg>
-              <span>{saveLabel}</span>
-            </button>
-            <button className="clear" onClick={onClearChat} title="Clear">
-              clear
-            </button>
-          </span>
-        </div>
-        <ChatLogScroll turns={chatTurns} />
-      </aside>
+      <ChatlogPanel
+        hasChat={hasChat}
+        turns={chatTurns}
+        saveState={sessionSave.saveState}
+        saveEnabled={saveButtonEnabled}
+        saveLabel={sessionSave.label}
+        onSave={sessionSave.save}
+        onClear={onClearChat}
+      />
 
-      <main className="stage">
-        <div className="greeting">
-          <div className="hi">Hi, Yoyo.</div>
-        </div>
+      <BunnyStage
+        bunnyImage={bunnyImage}
+        isListening={isListening}
+        onBunnyPress={handleBunnyPress}
+        onMicClick={onClickMic}
+        caption={captionBlock}
+      />
 
-        <div className="bunny-wrap">
-          <div className="bunny-frame">
-            <div className="bunny-halo" />
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              className="bunny"
-              src={bunnyImage}
-              alt="Bunny"
-              draggable={false}
-              onPointerDown={handleBunnyPress}
-            />
-            <div className="shadow" />
-          </div>
-        </div>
+      <CornerControls
+        openDrawer={openDrawer}
+        asleep={asleep}
+        onToggleDrawer={toggleDrawer}
+        onToggleSleep={onToggleSleep}
+      />
 
-        <div className="caption-zone">
-          <div
-            className={captionClassName.join(" ")}
-            style={{ opacity: captionText ? 1 : 0 }}
-            key={captionKey}
-          >
-            {captionWords.map((word, i) => {
-              const wordClasses = ["word"];
-              if (karaokeActive) {
-                if (i < activeWordIndex) wordClasses.push("spoken");
-                else if (i === activeWordIndex) wordClasses.push("current");
-              }
-              return (
-                <span
-                  key={`${captionKey}-${i}`}
-                  className={wordClasses.join(" ")}
-                  ref={karaokeActive && i === activeWordIndex ? currentWordRef : undefined}
-                  style={
-                    karaokeActive
-                      ? undefined
-                      : { animationDelay: `${i * 0.08}s` }
-                  }
-                >
-                  {word + " "}
-                </span>
-              );
-            })}
-          </div>
-        </div>
+      <MusicDrawer
+        open={openDrawer === "music"}
+        music={music}
+        onClose={() => setOpenDrawer(null)}
+      />
 
-        <div className="dock">
-          <button
-            className={`mic ${isListening ? "listening" : ""}`}
-            aria-label="Talk to Bunny"
-            onClick={onClickMic}
-          >
-            <span className="ring" />
-            <span className="ring" />
-            <span className="ring" />
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <rect x="9" y="3" width="6" height="12" rx="3" />
-              <path d="M5 11a7 7 0 0 0 14 0" />
-              <path d="M12 18v3" />
-            </svg>
-          </button>
-          <div className={`wave ${isListening ? "on" : ""}`}>
-            <i />
-            <i />
-            <i />
-            <i />
-            <i />
-          </div>
-        </div>
-      </main>
-
-      <div className="corner">
-        <button
-          className={openDrawer === "music" ? "active" : ""}
-          aria-label="Music"
-          onClick={() => toggleDrawer("music")}
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M9 18V5l12-2v13" />
-            <circle cx="6" cy="18" r="3" />
-            <circle cx="18" cy="16" r="3" />
-          </svg>
-          <span>music</span>
-        </button>
-        <button
-          className={openDrawer === "memory" ? "active" : ""}
-          aria-label="Memory"
-          onClick={() => toggleDrawer("memory")}
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M19 21 12 16l-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
-          </svg>
-          <span>memory</span>
-        </button>
-        <button
-          className={`icon-only ${asleep ? "active" : ""}`}
-          aria-label="Say goodnight"
-          title="say goodnight"
-          onClick={onToggleSleep}
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
-          </svg>
-        </button>
-      </div>
-
-      <div className={`drawer ${openDrawer === "music" ? "show" : ""}`}>
-        <div className="drawer-head">
-          <div>
-            <h3>quiet music</h3>
-            <div className="sub">for when we&apos;re together</div>
-          </div>
-          <button className="close" onClick={() => setOpenDrawer(null)} aria-label="Close">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-            >
-              <path d="M6 6l12 12M18 6 6 18" />
-            </svg>
-          </button>
-        </div>
-        <div className="drawer-body">
-          <button
-            type="button"
-            className="music-upload-btn"
-            onClick={music.openFilePicker}
-            disabled={music.uploading}
-          >
-            <svg
-              viewBox="0 0 24 24"
-              width="14"
-              height="14"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-            <span>{music.uploading ? "adding…" : "add music from my computer"}</span>
-          </button>
-          <input
-            ref={music.fileInputRef}
-            type="file"
-            accept="audio/*,.mp3,.wav,.m4a,.ogg"
-            multiple
-            hidden
-            onChange={music.onFilesPicked}
-          />
-          {music.tracks.length === 0 ? (
-            <div className="music-empty">
-              no music yet. tap the button above to add your own.
-            </div>
-          ) : (
-            music.tracks.map((t, i) => (
-              <div
-                key={t.id}
-                className={`track ${i === music.currentTrack ? "playing" : ""}`}
-                onClick={() => music.selectTrack(i)}
-              >
-                <div className="icon">
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                  >
-                    <path d="M9 18V5l12-2v13" />
-                    <circle cx="6" cy="18" r="3" />
-                    <circle cx="18" cy="16" r="3" />
-                  </svg>
-                </div>
-                <div className="meta-tx">
-                  <div className="title">{t.title}</div>
-                  <div className="desc">{t.desc}</div>
-                </div>
-                {!t.builtIn ? (
-                  <button
-                    type="button"
-                    className="track-delete"
-                    aria-label="remove from library"
-                    title="remove from library"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void music.deleteLocal(t.id);
-                    }}
-                  >
-                    ×
-                  </button>
-                ) : null}
-              </div>
-            ))
-          )}
-        </div>
-        <div className="volume-row">
-          <svg
-            viewBox="0 0 24 24"
-            width="13"
-            height="13"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M11 5 6 9H3v6h3l5 4V5z" />
-            <path d="M15.5 8.5a4 4 0 0 1 0 7" />
-          </svg>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={music.volume}
-            onChange={(e) => music.setVolume(Number(e.target.value))}
-            aria-label="Volume"
-            className="volume-slider"
-          />
-        </div>
-        <div className="player-bar">
-          <button onClick={music.prev} aria-label="Previous">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <path d="M19 20 9 12l10-8zM5 4v16" />
-            </svg>
-          </button>
-          <button className="play" onClick={music.playPause} aria-label="Play/Pause">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-              {music.playing && music.currentTrack >= 0 ? (
-                <path d="M6 4h4v16H6zM14 4h4v16h-4z" />
-              ) : (
-                <path d="M6 4v16l14-8z" />
-              )}
-            </svg>
-          </button>
-          <button onClick={music.next} aria-label="Next">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <path d="M5 4l10 8-10 8zM19 4v16" />
-            </svg>
-          </button>
-          <button
-            className="play-mode"
-            onClick={music.cyclePlayMode}
-            aria-label={`play mode: ${music.playModeLabel}`}
-            title={music.playModeLabel}
-          >
-            {music.playMode === "repeat-one" ? (
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M17 2l4 4-4 4" />
-                <path d="M3 11V9a4 4 0 0 1 4-4h14" />
-                <path d="M7 22l-4-4 4-4" />
-                <path d="M21 13v2a4 4 0 0 1-4 4H3" />
-                <text x="12" y="14" textAnchor="middle" fontSize="7" fontWeight="700" fill="currentColor" stroke="none">1</text>
-              </svg>
-            ) : music.playMode === "shuffle" ? (
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M16 3h5v5" />
-                <path d="M4 20L21 3" />
-                <path d="M21 16v5h-5" />
-                <path d="M15 15l6 6" />
-                <path d="M4 4l5 5" />
-              </svg>
-            ) : (
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M17 2l4 4-4 4" />
-                <path d="M3 11V9a4 4 0 0 1 4-4h14" />
-                <path d="M7 22l-4-4 4-4" />
-                <path d="M21 13v2a4 4 0 0 1-4 4H3" />
-              </svg>
-            )}
-          </button>
-          <span className="t">
-            {music.audioError && music.currentTrack >= 0
-              ? "this track did not load — pick another or add a new one"
-              : music.nowPlayingText}
-          </span>
-        </div>
-      </div>
-
-      <div className={`drawer ${openDrawer === "memory" ? "show" : ""}`}>
-        <div className="drawer-head">
-          <div>
-            <h3>our memories</h3>
-            <div className="sub">{memories.length} kept</div>
-          </div>
-          <button
-            className="close"
-            onClick={() => {
-              setOpenDrawer(null);
-              closeMemoryDetail();
-            }}
-            aria-label="Close"
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-            >
-              <path d="M6 6l12 12M18 6 6 18" />
-            </svg>
-          </button>
-        </div>
-        <div className="drawer-body">
-          {memoryDetail ? (
-            <MemoryDetailView
-              memory={memoryDetail}
-              session={memoryDetailSession}
-              onBack={closeMemoryDetail}
-            />
-          ) : (
-            <>
-              {memories.length === 0 ? (
-                <div className="mem-empty">
-                  nothing saved yet.
-                  <br />
-                  tap <em>save to memory</em> after a talk.
-                </div>
-              ) : (
-                memoryGroups.map((group) => (
-                  <div key={group.dateKey}>
-                    <div className="mem-day">{group.dateLabel}</div>
-                    {group.entries.map((mem) => {
-                      const confirming = memConfirmId === mem.id;
-                      return (
-                        <div
-                          key={mem.id}
-                          className={`mem-row ${confirming ? "confirming" : ""}`}
-                        >
-                          <span className="pin" />
-                          <div className="date">{mem.type.replace("_", " ")}</div>
-                          <button
-                            type="button"
-                            className="mem-delete"
-                            aria-label="remove this memory"
-                            title="remove this memory"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setMemConfirmId(confirming ? null : mem.id);
-                            }}
-                          >
-                            {confirming ? "×" : "×"}
-                          </button>
-                          <div
-                            className="txt"
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => {
-                              if (confirming) return;
-                              openMemoryDetail(mem);
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === " ") {
-                                e.preventDefault();
-                                if (!confirming) openMemoryDetail(mem);
-                              }
-                            }}
-                          >
-                            {mem.content}
-                          </div>
-                          {confirming ? (
-                            <div className="mem-confirm">
-                              <span>remove this memory only?</span>
-                              <div className="mem-confirm-actions">
-                                <button
-                                  type="button"
-                                  className="mem-confirm-yes"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDeleteMemory(mem.id);
-                                  }}
-                                >
-                                  remove
-                                </button>
-                                <button
-                                  type="button"
-                                  className="mem-confirm-no"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setMemConfirmId(null);
-                                  }}
-                                >
-                                  keep
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <span className="arrow">open →</span>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))
-              )}
-              <div className="parent-tools">
-                <div className="parent-tools-label">parent tools</div>
-                <div className="parent-tools-hint">
-                  to remove one entry, hover the memory card and tap ×.
-                </div>
-                {resetConfirming ? (
-                  <div className="parent-tools-confirm">
-                    <span>this wipes EVERY memory and every past session. only use before handing Bunny to Yoyo for a fresh start.</span>
-                    <div className="parent-tools-actions">
-                      <button
-                        className="parent-reset confirm"
-                        onClick={async () => {
-                          setResetConfirming(false);
-                          try {
-                            await wipeAllMemory();
-                          } catch (err) {
-                            console.warn("[bunny] wipe failed:", err);
-                          }
-                          setMemories([]);
-                          lastCloserRef.current = null;
-                          clearTurns();
-                          clearCaption();
-                          setShowWipeBanner(true);
-                          window.setTimeout(() => setShowWipeBanner(false), 2800);
-                        }}
-                      >
-                        yes, wipe everything
-                      </button>
-                      <button
-                        className="parent-reset cancel"
-                        onClick={() => setResetConfirming(false)}
-                      >
-                        cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <button
-                    className="parent-reset"
-                    onClick={() => setResetConfirming(true)}
-                  >
-                    wipe every memory (factory reset)
-                  </button>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
+      <MemoryDrawer
+        open={openDrawer === "memory"}
+        memories={memories}
+        memoryGroups={memoryGroups}
+        memoryDetail={memoryDetail}
+        memoryDetailSession={memoryDetailSession}
+        memConfirmId={memConfirmId}
+        resetConfirming={resetConfirming}
+        onClose={() => setOpenDrawer(null)}
+        onOpenDetail={openMemoryDetail}
+        onCloseDetail={closeMemoryDetail}
+        onRequestDelete={setMemConfirmId}
+        onConfirmDelete={handleDeleteMemory}
+        onRequestReset={() => setResetConfirming(true)}
+        onCancelReset={() => setResetConfirming(false)}
+        onConfirmReset={handleFactoryReset}
+      />
 
       {showWipeBanner ? <div className="reset-banner">memory cleared · fresh start</div> : null}
     </>
   );
 }
 
-function MemoryDetailView({
-  memory,
-  session,
-  onBack,
-}: {
-  memory: DistilledMemory;
-  session: DailySession | null;
-  onBack: () => void;
-}) {
-  const turns = (session?.turns ?? []).filter((t) => t.role !== "system");
-  return (
-    <div className="mem-detail">
-      <div className="mem-detail-head">
-        <button className="back" onClick={onBack}>
-          <span aria-hidden="true">←</span> back
-        </button>
-        <div className="date">
-          {formatDateLabel(dateKeyFromMemory(memory))} · {memory.type.replace("_", " ")}
-        </div>
-        <div className="phrase">{memory.content}</div>
-      </div>
-      <div className="mem-detail-body">
-        {turns.length === 0 ? (
-          <div className="mem-detail-empty">
-            the full talk was not kept alongside this memory.
-          </div>
-        ) : (
-          turns.map((turn) => (
-            <div
-              key={turn.id}
-              className={`mem-detail-line ${turn.role === "user" ? "user" : ""}`}
-            >
-              <span className="who">{turn.role === "user" ? "Yoyo" : "Bunny"}</span>
-              {turn.text}
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ChatLogScroll({
-  turns,
-}: {
-  turns: { id: string; role: "user" | "assistant" | "system"; text: string }[];
-}) {
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  }, [turns.length]);
-
-  return (
-    <div className="chatlog-scroll" ref={scrollRef}>
-      {turns.map((turn) => {
-        if (turn.role === "system") return null;
-        const isUser = turn.role === "user";
-        return (
-          <div
-            key={turn.id}
-            className={`bubble-row ${isUser ? "user" : "bot"}`}
-          >
-            {isUser ? (
-              <div className="chat-avatar user-av" aria-hidden="true">
-                Y
-              </div>
-            ) : (
-              <div
-                className="chat-avatar bunny-av"
-                aria-hidden="true"
-                role="img"
-                aria-label="Bunny"
-              />
-            )}
-            <div className={`bubble ${isUser ? "user" : ""}`}>{turn.text}</div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
