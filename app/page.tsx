@@ -17,6 +17,8 @@ import {
   type SessionCloser,
 } from "../lib/memory/session-store";
 import { useMusicPlayer } from "../lib/music/use-music-player";
+import { useCaptionStream } from "../lib/conversation/use-caption-stream";
+import { useAmbient } from "../lib/ambient/use-ambient";
 
 type MemoryGroup = {
   dateKey: string;
@@ -24,45 +26,7 @@ type MemoryGroup = {
   entries: DistilledMemory[];
 };
 
-type DisplayedTurn = {
-  id: string;
-  role: "user" | "assistant";
-  text: string;
-};
-
-type CaptionPhase = "idle" | "entering" | "exiting";
-
 type SaveState = "idle" | "saving" | "saved" | "error";
-
-const TIME_COPY: Record<string, { label: string; warm: string }> = {
-  "late night": { label: "late night", warm: "she waited up a little" },
-  "morning light": { label: "morning light", warm: "the sun is soft today" },
-  midday: { label: "midday", warm: "a little quiet here today" },
-  afternoon: { label: "afternoon", warm: "the room is warm" },
-  evening: { label: "evening", warm: "the day is winding down" },
-  night: { label: "night", warm: "everything feels gentle" },
-};
-
-function getTimeKey(hours: number) {
-  if (hours < 5) return "late night";
-  if (hours < 11) return "morning light";
-  if (hours < 14) return "midday";
-  if (hours < 18) return "afternoon";
-  if (hours < 21) return "evening";
-  return "night";
-}
-
-function getDayNumber() {
-  if (typeof window === "undefined") return 1;
-  const key = "bunny:first_seen";
-  const now = Date.now();
-  const stored = window.localStorage.getItem(key);
-  const first = stored ? Number(stored) : now;
-  if (!stored) {
-    window.localStorage.setItem(key, String(now));
-  }
-  return Math.max(1, Math.floor((now - first) / 86_400_000) + 1);
-}
 
 function dateKeyFromMemory(m: DistilledMemory) {
   if (m.sessionDate) return m.sessionDate;
@@ -127,25 +91,17 @@ export default function Home() {
   const [resetConfirming, setResetConfirming] = useState(false);
   const [memConfirmId, setMemConfirmId] = useState<string | null>(null);
 
-  const [motes, setMotes] = useState<
-    Array<{ left: string; size: number; duration: number; delay: number; opacity: number }>
-  >([]);
-  const [timeKey, setTimeKey] = useState<string>("midday");
-  const [dayNumber, setDayNumber] = useState<number>(1);
-  const [clientReady, setClientReady] = useState(false);
+  const { motes, timeLabel, timeWarm, dayNumber, clientReady } = useAmbient();
   const [showWipeBanner, setShowWipeBanner] = useState(false);
 
-  // caption orchestration
-  const [displayedTurn, setDisplayedTurn] = useState<DisplayedTurn | null>(null);
-  const [captionPhase, setCaptionPhase] = useState<CaptionPhase>("idle");
-  const displayedTurnRef = useRef<DisplayedTurn | null>(null);
+  // caption orchestration — 3-phase transition + listener-triggered retirement
+  const { displayedTurn, captionPhase, clear: clearCaption } = useCaptionStream(
+    subtitle,
+    status,
+  );
 
   // session save flow
   const [saveState, setSaveState] = useState<SaveState>("idle");
-
-  useEffect(() => {
-    displayedTurnRef.current = displayedTurn;
-  }, [displayedTurn]);
 
   useEffect(() => {
     memoriesRef.current = memories;
@@ -165,7 +121,7 @@ export default function Home() {
     };
   }, []);
 
-  // mount-only client setup
+  // mount-only: optional ?wipe=1 reset + load persisted memories
   useEffect(() => {
     let cancelled = false;
 
@@ -184,23 +140,6 @@ export default function Home() {
         window.setTimeout(() => setShowWipeBanner(false), 2800);
       });
     }
-
-    const out: typeof motes = [];
-    for (let i = 0; i < 14; i++) {
-      const size = 2 + Math.random() * 3.5;
-      const duration = 22 + Math.random() * 28;
-      out.push({
-        left: `${Math.random() * 100}%`,
-        size,
-        duration,
-        delay: -Math.random() * duration,
-        opacity: Number((0.35 + Math.random() * 0.45).toFixed(2)),
-      });
-    }
-    setMotes(out);
-    setTimeKey(getTimeKey(new Date().getHours()));
-    setDayNumber(getDayNumber());
-    setClientReady(true);
 
     void getDistilledMemories()
       .then((list) => {
@@ -223,45 +162,6 @@ export default function Home() {
     }
     return () => document.body.classList.remove("sleeping");
   }, [asleep]);
-
-  // caption transition orchestration: swap when subtitle id changes
-  useEffect(() => {
-    if (!subtitle) return; // null doesn't retire the currently displayed turn
-    const current = displayedTurnRef.current;
-    if (current && current.id === subtitle.id) {
-      if (current.text !== subtitle.text) {
-        setDisplayedTurn({ id: subtitle.id, role: subtitle.role, text: subtitle.text });
-        setCaptionPhase("entering");
-      }
-      return;
-    }
-
-    if (!current) {
-      setDisplayedTurn({ id: subtitle.id, role: subtitle.role, text: subtitle.text });
-      setCaptionPhase("entering");
-      return;
-    }
-
-    setCaptionPhase("exiting");
-    const handle = window.setTimeout(() => {
-      setDisplayedTurn({ id: subtitle.id, role: subtitle.role, text: subtitle.text });
-      setCaptionPhase("entering");
-    }, 560);
-    return () => window.clearTimeout(handle);
-  }, [subtitle?.id, subtitle?.text, subtitle?.role]);
-
-  // when the user taps mic, retire the currently displayed turn so the bunny's
-  // last words fly off toward the chatlog immediately (not after STT completes)
-  useEffect(() => {
-    if (status !== "listening") return;
-    if (!displayedTurnRef.current) return;
-    setCaptionPhase("exiting");
-    const handle = window.setTimeout(() => {
-      setDisplayedTurn(null);
-      setCaptionPhase("idle");
-    }, 560);
-    return () => window.clearTimeout(handle);
-  }, [status]);
 
   // status label
   const statusLabel = useMemo(() => {
@@ -361,10 +261,6 @@ export default function Home() {
 
   const hasChat = chatTurns.length > 0 || (displayedTurn !== null && turns.length > 1);
 
-  // time copy
-  const timeLabel = TIME_COPY[timeKey]?.label ?? "midday";
-  const timeWarm = TIME_COPY[timeKey]?.warm ?? "a little quiet here today";
-
   // handlers
   const onClickMic = () => {
     if (asleep) return;
@@ -386,8 +282,7 @@ export default function Home() {
 
   const onClearChat = () => {
     clearTurns();
-    setDisplayedTurn(null);
-    setCaptionPhase("idle");
+    clearCaption();
     setSaveState("idle");
   };
 
@@ -1000,8 +895,7 @@ export default function Home() {
                           setMemories([]);
                           lastCloserRef.current = null;
                           clearTurns();
-                          setDisplayedTurn(null);
-                          setCaptionPhase("idle");
+                          clearCaption();
                           setShowWipeBanner(true);
                           window.setTimeout(() => setShowWipeBanner(false), 2800);
                         }}
