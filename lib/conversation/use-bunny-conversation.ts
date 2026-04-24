@@ -49,6 +49,7 @@ export function useBunnyConversation(
   const [turns, setTurns] = useState<ConversationTurn[]>(MOCK_SESSION_TURNS);
   const [subtitle, setSubtitle] = useState<SubtitleCue | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [activeWordIndex, setActiveWordIndex] = useState(-1);
   const turnsRef = useRef(turns);
 
   const characterName = BUNNY_CHARACTER.name;
@@ -101,7 +102,11 @@ export function useBunnyConversation(
 
       setStatus("speaking");
       controller.startSpeaking();
-      await speechPlayerRef.current.speak(reply.text);
+      setActiveWordIndex(-1);
+      await speechPlayerRef.current.speak(reply.text, {
+        onWordChange: (idx) => setActiveWordIndex(idx),
+      });
+      setActiveWordIndex(-1);
       controller.returnToIdle();
       controller.showMomentaryReaction("happy", 760);
       setStatus("idle");
@@ -109,6 +114,7 @@ export function useBunnyConversation(
       speechPlayerRef.current.stop();
       controller.returnToIdle();
       setStatus("error");
+      setActiveWordIndex(-1);
       setError(getAudioErrorMessage(cause));
       setSubtitle(null);
     }
@@ -136,6 +142,7 @@ export function useBunnyConversation(
     sessionSummary,
     handleMicClick,
     clearTurns,
+    activeWordIndex,
   };
 }
 

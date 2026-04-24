@@ -144,7 +144,8 @@ export default function Home() {
   );
 
   const { bunnyImage, isListening, handleBunnyPress } = companion;
-  const { status, subtitle, turns, error, handleMicClick, clearTurns } = conversation;
+  const { status, subtitle, turns, error, handleMicClick, clearTurns, activeWordIndex } =
+    conversation;
 
   const [asleep, setAsleep] = useState(false);
   const [openDrawer, setOpenDrawer] = useState<"music" | "memory" | null>(null);
@@ -410,11 +411,37 @@ export default function Home() {
   const captionText = errorCaption ?? displayedTurn?.text ?? "";
   const captionRole: "assistant" | "user" = errorCaption ? "assistant" : (displayedTurn?.role ?? "assistant");
   const captionKey = errorCaption ? `err-${errorCaption}` : displayedTurn?.id ?? "empty";
+  // Karaoke mode lights up one word at a time as Bunny actually speaks it.
+  // We only engage it while the assistant reply is live (status === speaking)
+  // AND the currently displayed turn is that assistant turn — so user
+  // transcripts and old captions keep the calm static look.
+  const karaokeActive =
+    !errorCaption &&
+    captionRole === "assistant" &&
+    status === "speaking" &&
+    displayedTurn?.id === subtitle?.id;
+
   const captionClassName = ["caption"];
   if (captionPhase === "exiting" && !errorCaption) captionClassName.push("exiting");
   if (captionRole === "user") captionClassName.push("is-user");
+  if (karaokeActive) captionClassName.push("has-karaoke");
 
   const captionWords = useMemo(() => captionText.split(" ").filter(Boolean), [captionText]);
+  const currentWordRef = useRef<HTMLSpanElement | null>(null);
+
+  // As each word lights up, gently scroll it into view so long replies keep
+  // the active word visible inside the fixed-height caption zone.
+  useEffect(() => {
+    if (!karaokeActive) return;
+    if (activeWordIndex < 0) return;
+    const el = currentWordRef.current;
+    if (!el) return;
+    try {
+      el.scrollIntoView({ block: "center", behavior: "smooth", inline: "nearest" });
+    } catch {
+      // older browsers
+    }
+  }, [karaokeActive, activeWordIndex, captionKey]);
 
   // chatlog turns: exclude both the turn currently hosted in caption AND the
   // turn that just arrived as `subtitle` (which is about to become displayed).
@@ -704,15 +731,27 @@ export default function Home() {
             style={{ opacity: captionText ? 1 : 0 }}
             key={captionKey}
           >
-            {captionWords.map((word, i) => (
-              <span
-                key={`${captionKey}-${i}`}
-                className="word"
-                style={{ animationDelay: `${i * 0.08}s` }}
-              >
-                {word + " "}
-              </span>
-            ))}
+            {captionWords.map((word, i) => {
+              const wordClasses = ["word"];
+              if (karaokeActive) {
+                if (i < activeWordIndex) wordClasses.push("spoken");
+                else if (i === activeWordIndex) wordClasses.push("current");
+              }
+              return (
+                <span
+                  key={`${captionKey}-${i}`}
+                  className={wordClasses.join(" ")}
+                  ref={karaokeActive && i === activeWordIndex ? currentWordRef : undefined}
+                  style={
+                    karaokeActive
+                      ? undefined
+                      : { animationDelay: `${i * 0.08}s` }
+                  }
+                >
+                  {word + " "}
+                </span>
+              );
+            })}
           </div>
         </div>
 

@@ -25,12 +25,14 @@ export async function POST(request: Request) {
   }
 
   try {
-    const audio = await synthesizeWithElevenLabs(text);
+    const { audioBase64, mimeType, wordTimings } = await synthesizeWithElevenLabs(text);
 
     return Response.json({
       mode: "live",
       strategy: "audio",
-      ...audio,
+      audioBase64,
+      mimeType,
+      wordTimings,
     });
   } catch (error) {
     console.error(error);
