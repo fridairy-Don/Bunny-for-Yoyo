@@ -16,30 +16,24 @@ export type SynthesisResult = {
   wordTimings: WordTiming[];
 };
 
-type CharAlignment = {
-  characters: string[];
-  character_start_times_seconds: number[];
-  character_end_times_seconds: number[];
-};
-
-type WithTimestampsResponse = {
-  audio_base64: string;
-  alignment?: CharAlignment;
-  normalized_alignment?: CharAlignment;
-};
-
+// Use the plain /text-to-speech endpoint so ElevenLabs can stream audio
+// bytes as they're generated. The /with-timestamps endpoint sounds nice in
+// theory (per-character alignment for karaoke) but it has to finish the
+// full synthesis before it can return a single JSON blob, which roughly
+// doubled time-to-first-word. We trade precise per-word timing for real-
+// time feel; the client derives karaoke highlights from audio.currentTime
+// proportionally, which looks natural for a 6-year-old.
 export async function synthesizeWithElevenLabs(text: string): Promise<SynthesisResult> {
   const env = getProviderEnv();
 
-  // Use the with-timestamps endpoint so we can light up each word as Bunny
-  // actually speaks it. Same billing as the plain TTS call.
   const response = await fetch(
-    `https://api.elevenlabs.io/v1/text-to-speech/${env.elevenLabsVoiceId}/with-timestamps`,
+    `https://api.elevenlabs.io/v1/text-to-speech/${env.elevenLabsVoiceId}`,
     {
       method: "POST",
       headers: {
         "xi-api-key": env.elevenLabsApiKey || "",
         "Content-Type": "application/json",
+        Accept: "audio/mpeg",
       },
       body: JSON.stringify({
         text,
@@ -50,54 +44,12 @@ export async function synthesizeWithElevenLabs(text: string): Promise<SynthesisR
   );
 
   await expectOk(response, "ElevenLabs speech request failed.");
-  const payload = (await response.json()) as WithTimestampsResponse;
-
-  const audioBase64 = payload.audio_base64;
-  const alignment = payload.normalized_alignment ?? payload.alignment;
-  const wordTimings = alignment ? buildWordTimings(alignment) : [];
+  const arrayBuffer = await response.arrayBuffer();
+  const audioBase64 = Buffer.from(arrayBuffer).toString("base64");
 
   return {
     audioBase64,
     mimeType: "audio/mpeg",
-    wordTimings,
+    wordTimings: [],
   };
-}
-
-function buildWordTimings(alignment: CharAlignment): WordTiming[] {
-  const { characters, character_start_times_seconds, character_end_times_seconds } = alignment;
-  if (!characters?.length) return [];
-
-  const words: WordTiming[] = [];
-  let buffer = "";
-  let bufferStart = -1;
-  let bufferEnd = -1;
-
-  const flush = () => {
-    const trimmed = buffer.trim();
-    if (trimmed && bufferStart >= 0) {
-      words.push({
-        word: trimmed,
-        startMs: Math.round(bufferStart * 1000),
-        endMs: Math.round(bufferEnd * 1000),
-      });
-    }
-    buffer = "";
-    bufferStart = -1;
-    bufferEnd = -1;
-  };
-
-  for (let i = 0; i < characters.length; i++) {
-    const ch = characters[i];
-    const start = character_start_times_seconds[i] ?? 0;
-    const end = character_end_times_seconds[i] ?? start;
-    if (/\s/.test(ch)) {
-      flush();
-      continue;
-    }
-    if (bufferStart < 0) bufferStart = start;
-    bufferEnd = end;
-    buffer += ch;
-  }
-  flush();
-  return words;
 }

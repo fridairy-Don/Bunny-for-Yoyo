@@ -83,6 +83,10 @@ export function useBunnyConversation(
 
     try {
       setStatus("transcribing");
+      // Drop "listening" interaction state the instant Yoyo taps stop — the
+      // mic ripples stop immediately instead of spinning for 2–5s while STT
+      // and LLM run. Bunny relaxes from ear_react back to idle.
+      controller.returnToIdle();
       const capture = await recorderRef.current.stop();
       const transcript = await sttClientRef.current.transcribe(capture);
 
