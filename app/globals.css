@@ -643,21 +643,17 @@ button {
   align-items: flex-start;
   gap: 10px;
   margin-bottom: 18px;
-  opacity: 0;
-  transform: translateY(6px);
-  animation: bubbleRowIn 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  /* No fade-in animation here: the caption's own exit animation already
+     covers the "flight" feel. If the row were invisible during entry it
+     would reserve space first and only then materialise, producing a big
+     empty gap in the chat log for ~0.55s. Appearing instantly gives a
+     clean "caption flies → bubble lands" hand-off. */
 }
 .bubble-row:last-child {
   margin-bottom: 4px;
 }
 .bubble-row.user {
   flex-direction: row-reverse;
-}
-@keyframes bubbleRowIn {
-  to {
-    opacity: 1;
-    transform: none;
-  }
 }
 .chat-avatar {
   width: 44px;
