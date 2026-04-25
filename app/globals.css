@@ -2567,3 +2567,93 @@ body.sleeping .wall {
   transform: scale(1.02);
 }
 
+
+/* ─── iPad portrait: focus mode ──────────────────────────────────────── */
+/* When an iPad-class device is held in portrait, the side surfaces
+   (chat panel, polaroid wall) and decorative chrome (header, corner
+   controls, any drawers) collapse so only Bunny + the mic + Bunny's
+   spoken caption remain. The conversation state itself keeps running
+   in the background — recording, captions, polaroid generation are
+   all unaffected — so a rotation back to landscape simply unhides the
+   side panels with their state intact.
+
+   Match window: portrait orientation, width 700–1050px. Phones (≤700)
+   keep their existing layout; landscape iPad and desktop (>1050 or
+   any orientation: landscape) keep the full web layout. The lower
+   bound is the existing phone breakpoint; the upper bound sits just
+   above iPad Pro 12.9" portrait (1024 CSS px) so every iPad (mini
+   744, Air 820, Pro 11" 834, Pro 12.9" 1024) gets focus mode while
+   common desktop portrait monitors (≥1080 wide) keep the full web
+   layout. */
+@media (orientation: portrait) and (min-width: 700px) and (max-width: 1050px) {
+  /* Hide everything that is not the bunny stage or the ambient bg.
+     `!important` is justified here because some of these have
+     state-driven inline styles or `.show` overrides we want to win
+     against unconditionally in focus mode. */
+  .chrome,
+  .chatlog,
+  .wall,
+  .wall-fan-backdrop,
+  .wall-detail-backdrop,
+  .corner,
+  .drawer,
+  .reset-banner {
+    display: none !important;
+  }
+
+  /* Reclaim the screen: stage now has no greeting row visible, so
+     bunny gets the full vertical space minus caption + mic dock. */
+  .stage {
+    padding: 32px 20px 36px;
+  }
+  .greeting {
+    display: none;
+  }
+
+  /* Bigger bunny — it's the whole screen now. The aspect-ratio
+     constraint keeps proportions correct; we relax max-height so
+     bunny can take most of the tall portrait viewport. */
+  .bunny-frame {
+    height: auto;
+    max-height: min(72vh, 880px);
+    max-width: min(640px, 86vw);
+    width: 100%;
+  }
+
+  /* Caption keeps its place but widens slightly so storybook lines
+     don't wrap awkwardly on iPad's wider portrait column. */
+  .caption-zone {
+    max-width: min(640px, 86vw);
+    padding: 0 8px;
+  }
+
+  /* Mic grows so it reads as the single CTA. Touch target also
+     improves for a child's fingertip. */
+  .mic {
+    width: 104px;
+    height: 104px;
+  }
+  .mic svg {
+    width: 32px;
+    height: 32px;
+  }
+  .mic.listening {
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 0.9) inset,
+      0 22px 50px oklch(0.78 0.12 10 / 0.24),
+      0 0 0 8px oklch(0.78 0.12 10 / 0.1);
+  }
+  .dock {
+    gap: 12px;
+    padding-bottom: 8px;
+  }
+
+  /* The polaroid detail modal can be open at rotation time. We hide
+     its visible shell but DO keep the React state intact in the
+     parent — when the user rotates back to landscape the modal
+     reappears in place. (The detail backdrop is hidden above; this
+     just makes sure the inner card is not accidentally interactive.) */
+  .wall-detail {
+    display: none !important;
+  }
+}
