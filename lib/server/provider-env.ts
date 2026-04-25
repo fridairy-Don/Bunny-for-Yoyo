@@ -10,6 +10,9 @@ export type ProviderEnv = {
   elevenLabsApiKey?: string;
   elevenLabsVoiceId?: string;
   elevenLabsModelId: string;
+  // Fal.ai (image generation for the polaroid wall). Format: KEY_ID:KEY_SECRET.
+  // Single env var so we can rotate without touching code.
+  falKey?: string;
   appPublicUrl?: string;
   deploymentEnv: "development" | "preview" | "production";
 };
@@ -45,6 +48,7 @@ export function getProviderEnv(): ProviderEnv {
     elevenLabsApiKey: process.env.ELEVENLABS_API_KEY,
     elevenLabsVoiceId: process.env.ELEVENLABS_VOICE_ID || DEFAULT_BUNNY_VOICE_ID,
     elevenLabsModelId: process.env.ELEVENLABS_MODEL_ID || "eleven_multilingual_v2",
+    falKey: process.env.FAL_KEY,
     appPublicUrl: process.env.APP_PUBLIC_URL,
     deploymentEnv,
   };
@@ -60,6 +64,10 @@ export function hasGroqConfig(env = getProviderEnv()) {
 
 export function hasElevenLabsConfig(env = getProviderEnv()) {
   return Boolean(env.elevenLabsApiKey && env.elevenLabsVoiceId && env.elevenLabsModelId);
+}
+
+export function hasFalConfig(env = getProviderEnv()) {
+  return Boolean(env.falKey && env.falKey.includes(":"));
 }
 
 export function getOpenRouterHeaders(env = getProviderEnv()) {

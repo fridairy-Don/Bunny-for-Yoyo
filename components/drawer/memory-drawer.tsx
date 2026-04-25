@@ -1,12 +1,9 @@
 "use client";
 
-import { useState } from "react";
-
 import type { DailySession, DistilledMemory } from "../../lib/memory/session-store";
 import { CloseIcon } from "../icons";
 import { MemoryDetailView } from "../memory/memory-detail";
 import { ParentTools } from "../memory/parent-tools";
-import { PolaroidWall } from "../memory/polaroid-wall";
 
 export type MemoryGroup = {
   dateKey: string;
@@ -22,8 +19,9 @@ type Props = {
   memoryDetailSession: DailySession | null;
   memConfirmId: string | null;
   resetConfirming: boolean;
-  // Increments whenever save-to-memory lands a new session so the wall
-  // can refetch without having to subscribe to the conversation hook.
+  // Retained on the props so page.tsx can pass it without churn even
+  // though the drawer itself no longer hosts the polaroid wall.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   wallRefreshKey: number;
   onClose: () => void;
   onOpenDetail: (mem: DistilledMemory) => void;
@@ -35,6 +33,11 @@ type Props = {
   onConfirmReset: () => Promise<void> | void;
 };
 
+// The memory drawer used to host both the polaroid wall and the linear
+// memory list under a tab switcher. Polaroids now live as a permanent
+// fixture on the right side of the page (see <PolaroidWall>), so the
+// drawer is back to its original purpose: a tappable list of distilled
+// memories with delete + factory-reset under it.
 export function MemoryDrawer({
   open,
   memories,
@@ -43,7 +46,6 @@ export function MemoryDrawer({
   memoryDetailSession,
   memConfirmId,
   resetConfirming,
-  wallRefreshKey,
   onClose,
   onOpenDetail,
   onCloseDetail,
@@ -53,7 +55,6 @@ export function MemoryDrawer({
   onCancelReset,
   onConfirmReset,
 }: Props) {
-  const [view, setView] = useState<"wall" | "list">("wall");
   return (
     <div className={`drawer ${open ? "show" : ""}`}>
       <div className="drawer-head">
@@ -81,30 +82,7 @@ export function MemoryDrawer({
           />
         ) : (
           <>
-            <div className="memory-view-tabs">
-              <button
-                type="button"
-                className={`memory-view-tab ${view === "wall" ? "active" : ""}`}
-                onClick={() => setView("wall")}
-              >
-                wall
-              </button>
-              <button
-                type="button"
-                className={`memory-view-tab ${view === "list" ? "active" : ""}`}
-                onClick={() => setView("list")}
-              >
-                list
-              </button>
-            </div>
-
-            {view === "wall" ? (
-              <PolaroidWall
-                memories={memories}
-                onOpenMemory={onOpenDetail}
-                refreshKey={wallRefreshKey}
-              />
-            ) : memories.length === 0 ? (
+            {memories.length === 0 ? (
               <div className="mem-empty">
                 nothing saved yet.
                 <br />

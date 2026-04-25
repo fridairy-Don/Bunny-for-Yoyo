@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 
 import type { ConversationTurn } from "../types/conversation";
+import { requestPolaroidGeneration, type Polaroid } from "./polaroid-store";
 import {
   addDistilledMemories,
   archiveSession,
@@ -22,12 +23,29 @@ type Options = {
   onAccepted: (accepted: DistilledMemory[]) => void;
   onCloserUpdated: (closer: SessionCloser | null) => void;
   onSummariesUpdated?: (summaries: string[]) => void;
+  // A polaroid begins generating — this is the optimistic placeholder
+  // (status "pending", image still developing). The wall renders this as
+  // a "developing…" card right away so saving feels instant.
+  onPolaroidPending?: (placeholder: Polaroid) => void;
+  // Final state — either ready (with imageUrl) or failed. The wall swaps
+  // the placeholder with this row.
+  onPolaroidSettled?: (polaroid: Polaroid | null, error?: string) => void;
 };
 
 // Encapsulates the save-to-memory flow: distill via /api/distill, dedup +
 // persist new memories, archive the full session, refresh the last-closer
 // payload (used by the LLM to continue the next opening from where we left
-// off), and drive the 4-state button label through its lifecycle.
+// off), trigger background summarize + polaroid generation, and drive the
+// 4-state button label through its lifecycle.
+//
+// Flow ordering, intentional:
+//   1. distill (sync, blocks button)
+//   2. archive session row + last-closer (sync — these power memory list)
+//   3. button flips to "saved" — Yoyo's perceived save is done
+//   4. background: summarize → updateSessionSummary → refresh recents
+//   5. background: polaroid generation (~10–15s) — uses summary if it
+//      arrived, otherwise falls back to last user turn so we don't block
+//      on the LLM. Generation runs in parallel with summarize.
 export function useSessionSave(options: Options) {
   const [saveState, setSaveState] = useState<SaveState>("idle");
 
@@ -73,12 +91,40 @@ export function useSessionSave(options: Options) {
       setSaveState("saved");
       window.setTimeout(() => setSaveState("idle"), 2400);
 
+      // Optimistic polaroid placeholder so the wall has something to
+      // render IMMEDIATELY while the image generates. Predictable id
+      // means we can swap it cleanly when generation lands.
+      const polaroidPlaceholderId = sessionId ? `pol-${sessionId}` : `pol-${now}`;
+      if (sessionId && options.onPolaroidPending) {
+        const placeholder: Polaroid = {
+          id: polaroidPlaceholderId,
+          familyId: "yoyo-family",
+          sessionId,
+          sessionDate: todayStr,
+          prompt: null,
+          imageUrl: null,
+          status: "pending",
+          // Layout values are placeholder — server will randomize and
+          // persist final values when the row is upserted. Wall uses
+          // its own jitter for placeholder until then.
+          pinColor: "rose",
+          tiltDeg: 0,
+          xOffsetPx: 0,
+          yOffsetPx: 0,
+          liked: false,
+          errorMessage: null,
+          createdAt: Date.now(),
+        };
+        options.onPolaroidPending(placeholder);
+      }
+
       // Summarize the session in the background — flips the button back to
       // idle without waiting on the LLM. Attaches to bunny_sessions.summary
       // and refreshes the in-memory list of recent summaries used by the
       // next-visit prompt.
+      let summaryPromise: Promise<string> = Promise.resolve("");
       if (sessionId) {
-        void (async () => {
+        summaryPromise = (async () => {
           try {
             const res = await fetch("/api/summarize", {
               method: "POST",
@@ -94,9 +140,40 @@ export function useSessionSave(options: Options) {
                 options.onSummariesUpdated(fresh);
               }
             }
+            return summary;
           } catch (err) {
             console.warn("[bunny] background summarize failed:", err);
+            return "";
           }
+        })();
+        // fire-and-await internally — do not block save UI
+        void summaryPromise;
+      }
+
+      // Polaroid generation — runs in background. Waits up to 8s for the
+      // summary so the prompt can be richer; if the summary stalls, we
+      // fall back to the transcript so the wall still gets a card today.
+      if (sessionId && options.onPolaroidSettled) {
+        void (async () => {
+          let summary = "";
+          try {
+            // Race: wait for summary, but don't hold the polaroid for it
+            // longer than 8s.
+            summary = await Promise.race([
+              summaryPromise,
+              new Promise<string>((resolve) => setTimeout(() => resolve(""), 8000)),
+            ]);
+          } catch {
+            summary = "";
+          }
+
+          const result = await requestPolaroidGeneration({
+            sessionId,
+            sessionDate: todayStr,
+            summary: summary || null,
+            turns: payloadTurns,
+          });
+          options.onPolaroidSettled?.(result.polaroid, result.error);
         })();
       }
     } catch {

@@ -1509,6 +1509,11 @@ body.sleeping .mic {
   opacity: 0.45;
   pointer-events: none;
 }
+body.sleeping .wall {
+  opacity: 0.5;
+  filter: saturate(0.7) brightness(0.9);
+  transition: opacity 1.2s ease, filter 1.2s ease;
+}
 
 @media (max-width: 900px) {
   .chatlog {
@@ -1730,6 +1735,552 @@ body.sleeping .mic {
 }
 .polaroid-detail-transcript {
   padding: 6px 0;
+}
+
+/* ─── polaroid wall (right-side fixture) ─────────────────────────────── */
+/* Lives as a permanent column on the right side of the canvas. Each saved
+   session pins one polaroid here. Stacks of polaroids from the same day
+   collapse so the wall stays breathable; tap a stack to fan it out. */
+.wall {
+  position: fixed;
+  top: 90px;
+  right: 16px;
+  /* Narrow safe-area column. Stacks lay out as a vertical flex flow
+     INSIDE this column, so per-card jitter never pushes a card off
+     the wall edge. */
+  width: clamp(150px, 16vw, 188px);
+  bottom: 86px;          /* clear the bottom corner controls */
+  z-index: 4;            /* under drawers (8) and corner buttons (7) */
+  pointer-events: none;  /* children re-enable */
+  overflow-y: auto;
+  overflow-x: hidden;    /* hard-clip any sub-pixel overshoot */
+  padding: 8px 14px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 36px;             /* breathing room between stacked stacks */
+  scrollbar-width: thin;
+}
+.wall::-webkit-scrollbar { width: 6px; }
+.wall::-webkit-scrollbar-thumb {
+  background: oklch(0.85 0.02 50 / 0.5);
+  border-radius: 3px;
+}
+.wall-empty {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  text-align: center;
+  font-family: "Fraunces", serif;
+  font-style: italic;
+  color: oklch(0.5 0.03 40 / 0.85);
+  font-size: 12px;
+  padding: 28px 12px;
+  background: oklch(1 0 0 / 0.4);
+  border: 1px dashed oklch(0.85 0.02 50 / 0.6);
+  border-radius: 14px;
+  margin: 12px 12px 0;
+}
+.wall-empty-sub {
+  font-size: 11px;
+  color: oklch(0.55 0.02 45 / 0.7);
+}
+.wall-stack {
+  /* Vertical flex flow inside the wall column — stack centers itself
+     and never escapes the wall's safe area. Each stack reserves
+     enough vertical room for the topmost polaroid (~150px tall). */
+  position: relative;
+  width: 132px;
+  height: 168px;
+  pointer-events: auto;
+  transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.wall-stack-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 11px;
+  background: oklch(0.55 0.15 25);
+  color: oklch(0.99 0 0);
+  font-size: 11px;
+  font-family: "Quicksand", sans-serif;
+  font-weight: 600;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 2px 5px oklch(0.3 0.05 30 / 0.3);
+  z-index: 20;
+  pointer-events: none;
+}
+
+/* Individual polaroid card on the wall. Positioned absolutely with the
+   stack as the anchor — tilt + offsets are applied via transform. */
+.wall-polaroid {
+  all: unset;
+  cursor: pointer;
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 132px;
+  display: flex;
+  flex-direction: column;
+  background: oklch(0.995 0.002 80);
+  padding: 7px 7px 8px;
+  border-radius: 3px;
+  box-shadow: 0 8px 18px oklch(0.3 0.04 30 / 0.22),
+    0 2px 5px oklch(0.3 0.04 30 / 0.14);
+  font-family: "Fraunces", serif;
+  transition:
+    transform 0.55s cubic-bezier(0.18, 1.1, 0.4, 1.05),
+    opacity 0.45s ease,
+    box-shadow 0.25s ease;
+  will-change: transform, opacity;
+}
+.wall-polaroid.dropping {
+  /* Initial out-of-DOM-flow state for the pin-drop animation. */
+  transition: none;
+}
+.wall-polaroid.pinned {
+  /* The springy snap-down comes from this transition. */
+}
+.wall-polaroid.behind {
+  pointer-events: none;
+  filter: brightness(0.985);
+}
+.wall-polaroid:hover {
+  transform: translate(-50%, -3px) rotate(0deg) !important;
+  box-shadow: 0 12px 22px oklch(0.3 0.04 30 / 0.28),
+    0 4px 7px oklch(0.3 0.04 30 / 0.18);
+}
+.wall-polaroid-pin {
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: oklch(0.55 0.15 25);
+  box-shadow:
+    0 1px 2px oklch(0.2 0.02 30 / 0.45),
+    inset -1.5px -1.5px 2px oklch(0.3 0.1 25 / 0.5),
+    inset 1px 1px 1px oklch(0.95 0.05 30 / 0.55);
+  z-index: 2;
+}
+.wall-polaroid-photo {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  background: oklch(0.92 0.03 70);
+  border-radius: 1.5px;
+  margin-bottom: 5px;
+  position: relative;
+  overflow: hidden;
+}
+.wall-polaroid-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.wall-polaroid-shine {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    160deg,
+    oklch(1 0 0 / 0.18) 0%,
+    transparent 30%,
+    transparent 70%,
+    oklch(0 0 0 / 0.05) 100%
+  );
+}
+.wall-polaroid-developing {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, oklch(0.32 0.02 30), oklch(0.22 0.015 30));
+  overflow: hidden;
+}
+.wall-polaroid-developing-haze {
+  position: absolute;
+  inset: -20%;
+  background: radial-gradient(
+      circle at 30% 40%,
+      oklch(0.7 0.05 50 / 0.4) 0,
+      transparent 40%
+    ),
+    radial-gradient(
+      circle at 70% 60%,
+      oklch(0.65 0.08 30 / 0.35) 0,
+      transparent 40%
+    );
+  animation: wall-develop-shimmer 3.2s ease-in-out infinite;
+}
+.wall-polaroid-developing-label {
+  position: relative;
+  font-family: "Fraunces", serif;
+  font-style: italic;
+  font-size: 11px;
+  color: oklch(0.85 0.04 70 / 0.85);
+  letter-spacing: 0.05em;
+}
+@keyframes wall-develop-shimmer {
+  0%, 100% { opacity: 0.5; transform: translate(0, 0) scale(1); }
+  50%      { opacity: 0.85; transform: translate(2%, -1%) scale(1.05); }
+}
+.wall-polaroid-failed {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, oklch(0.94 0.02 60), oklch(0.88 0.025 50));
+  color: oklch(0.55 0.04 35 / 0.6);
+  font-size: 22px;
+}
+.wall-polaroid-failed-mark { opacity: 0.5; font-weight: 700; }
+.wall-polaroid-caption {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 1px 3px 3px;
+}
+.wall-polaroid-caption-date {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: oklch(0.55 0.04 35);
+  font-family: "Quicksand", sans-serif;
+  font-weight: 600;
+}
+.wall-polaroid-caption-text {
+  font-size: 11px;
+  font-style: italic;
+  color: oklch(0.35 0.04 30);
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Dim layer behind the fanned stack — taps anywhere off the fan
+   collapse it. Sits between the wall (z=4) and the fan (z=40). */
+.wall-fan-backdrop {
+  position: fixed;
+  inset: 0;
+  background: oklch(0.2 0.02 40 / 0.35);
+  backdrop-filter: blur(2px);
+  z-index: 35;
+  animation: wall-fan-backdrop-in 0.2s ease-out;
+}
+@keyframes wall-fan-backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Fanned-out stack: when a stack is tapped, the stack promotes itself
+   to a fixed overlay so the lateral row can spread wider than the
+   narrow wall column. Backdrop sits behind it via JS-managed state. */
+.wall-stack.fanned {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(80vw, 560px);
+  height: 280px;
+  z-index: 40;
+}
+.wall-fan {
+  position: relative;
+  width: 100%;
+  height: 240px;
+  pointer-events: auto;
+}
+.wall-fan-item {
+  all: unset;
+  cursor: pointer;
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 132px;
+  transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.wall-fan-item .wall-polaroid {
+  position: relative;
+  left: 0;
+  transform: none !important;
+}
+.wall-fan-count {
+  position: absolute;
+  bottom: -22px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  font-family: "Quicksand", sans-serif;
+  letter-spacing: 0.06em;
+  color: oklch(0.5 0.03 40);
+  background: oklch(1 0 0 / 0.7);
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+/* ─── polaroid detail modal ─────────────────────────────────────────── */
+.wall-detail-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: oklch(0.2 0.02 30 / 0.55);
+  backdrop-filter: blur(8px);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  animation: wall-detail-fade 0.2s ease-out;
+}
+@keyframes wall-detail-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.wall-detail {
+  position: relative;
+  width: min(420px, 92vw);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: oklch(0.99 0.005 75);
+  border-radius: 6px;
+  padding: 18px 18px 22px;
+  box-shadow: 0 24px 60px oklch(0.2 0.02 30 / 0.4);
+  font-family: "Fraunces", serif;
+  animation: wall-detail-rise 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.05);
+}
+@keyframes wall-detail-rise {
+  from { transform: translateY(14px) scale(0.97); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+.wall-detail-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: oklch(0.96 0.01 60);
+  color: oklch(0.4 0.04 30);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 2;
+}
+.wall-detail-close:hover { background: oklch(0.92 0.02 50); }
+.wall-detail-photo-frame {
+  width: 100%;
+  aspect-ratio: 1;
+  background: oklch(0.9 0.02 60);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+  margin-bottom: 14px;
+}
+.wall-detail-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.wall-detail-developing {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, oklch(0.32 0.02 30), oklch(0.22 0.015 30));
+  overflow: hidden;
+}
+.wall-detail-developing-haze {
+  position: absolute;
+  inset: -20%;
+  background: radial-gradient(
+      circle at 30% 40%,
+      oklch(0.7 0.05 50 / 0.4) 0,
+      transparent 40%
+    ),
+    radial-gradient(
+      circle at 70% 60%,
+      oklch(0.65 0.08 30 / 0.35) 0,
+      transparent 40%
+    );
+  animation: wall-develop-shimmer 3.2s ease-in-out infinite;
+}
+.wall-detail-developing-label {
+  position: relative;
+  font-family: "Fraunces", serif;
+  font-style: italic;
+  font-size: 14px;
+  color: oklch(0.88 0.04 70 / 0.9);
+  letter-spacing: 0.05em;
+  padding: 0 24px;
+  text-align: center;
+}
+.wall-detail-meta {
+  margin-bottom: 12px;
+}
+.wall-detail-date {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: oklch(0.55 0.04 35);
+  font-family: "Quicksand", sans-serif;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.wall-detail-summary {
+  font-style: italic;
+  font-size: 15px;
+  color: oklch(0.3 0.04 30);
+  line-height: 1.5;
+}
+.wall-detail-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.wall-detail-heart {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-family: "Quicksand", sans-serif;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: oklch(0.45 0.04 30);
+  border: 1px solid oklch(0.85 0.02 40 / 0.7);
+  transition: all 0.18s ease;
+}
+.wall-detail-heart:hover { background: oklch(0.96 0.02 60 / 0.6); }
+.wall-detail-heart.on {
+  color: oklch(0.99 0 0);
+  background: oklch(0.6 0.16 25);
+  border-color: oklch(0.6 0.16 25);
+}
+.wall-detail-heart .heart-glyph { font-size: 14px; line-height: 1; }
+.wall-detail-transcript-toggle {
+  all: unset;
+  cursor: pointer;
+  font-family: "Quicksand", sans-serif;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--rose, #b56a5a);
+  padding: 6px 8px;
+}
+.wall-detail-transcript-toggle:hover { text-decoration: underline; }
+
+/* Quiet "remove" affordance — purposely understated, parked at the end
+   of the action row so a curious 6yo isn't drawn to it first. The
+   actual destruction happens in the confirm row below. */
+.wall-detail-delete {
+  all: unset;
+  cursor: pointer;
+  margin-left: auto;        /* pushes to the right edge of the actions */
+  font-family: "Quicksand", sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: oklch(0.55 0.04 30 / 0.65);
+  padding: 6px 8px;
+  border-radius: 8px;
+  transition: color 0.18s ease, background 0.18s ease;
+}
+.wall-detail-delete:hover {
+  color: var(--rose, #b56a5a);
+  background: oklch(0.95 0.04 10 / 0.55);
+}
+
+.wall-detail-confirm {
+  margin-top: 12px;
+  padding: 10px 12px 12px;
+  border-radius: 12px;
+  background: oklch(0.97 0.03 10 / 0.55);
+  border: 1px solid oklch(0.88 0.05 10 / 0.6);
+  font-family: "Fraunces", serif;
+  font-style: italic;
+  font-size: 13px;
+  color: var(--ink-soft, oklch(0.4 0.04 30));
+}
+.wall-detail-confirm-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.wall-detail-confirm-yes,
+.wall-detail-confirm-no {
+  all: unset;
+  cursor: pointer;
+  flex: 1;
+  text-align: center;
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-family: "Fraunces", serif;
+  font-style: italic;
+  font-size: 13px;
+  border: 1px solid transparent;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+.wall-detail-confirm-yes {
+  color: var(--rose, #b56a5a);
+  border-color: oklch(0.85 0.07 10 / 0.7);
+}
+.wall-detail-confirm-yes:hover:not(:disabled) {
+  background: oklch(0.93 0.08 10 / 0.7);
+}
+.wall-detail-confirm-no {
+  color: oklch(0.45 0.04 30 / 0.7);
+}
+.wall-detail-confirm-no:hover:not(:disabled) {
+  color: oklch(0.3 0.04 30);
+  background: oklch(1 0 0 / 0.7);
+}
+.wall-detail-confirm-yes:disabled,
+.wall-detail-confirm-no:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.wall-detail-transcript {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid oklch(0.9 0.01 50);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+/* Mobile: compress wall to a slimmer column. */
+@media (max-width: 700px) {
+  .wall {
+    width: 132px;
+    top: 76px;
+    right: 8px;
+    padding: 6px 10px 24px;
+    gap: 28px;
+  }
+  .wall-stack { width: 108px; height: 138px; }
+  .wall-polaroid { width: 104px; }
+  .wall-fan-item { width: 104px; }
+  .wall-stack.fanned {
+    width: 92vw;
+    height: 240px;
+  }
 }
 
 /* ─── parent-only pages (setup + dashboard) ──────────────────────────── */

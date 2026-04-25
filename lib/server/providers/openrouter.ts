@@ -293,3 +293,73 @@ export async function summarizeTurnsAsSession(
   return raw.replace(/^["'`]+|["'`]+$/g, "").trim();
 }
 
+// Generate a fresh, varied scene description for the polaroid wall — one
+// per saved talk. The image model alone (with a static template) tends to
+// crank out posed group portraits regardless of topic, so we let the LLM
+// invent a specific moment and composition every time. The prompt is
+// merged with a locked style anchor downstream; this function only
+// produces the SCENE paragraph, not the full image prompt.
+//
+// We aim for visible variety: camera angle, posture, time of day, one
+// concrete prop. Temperature is intentionally high (0.95) so two talks
+// with similar summaries still produce different polaroids.
+export async function generatePolaroidScene(
+  summary: string,
+  turns: ConversationTurn[],
+): Promise<string> {
+  const env = getProviderEnv();
+  const trimmedSummary = (summary ?? "").trim();
+  const transcriptHint = turns
+    .filter((t) => t.role !== "system")
+    .slice(-8)
+    .map((t) => `${t.role === "user" ? "Yoyo" : "Bunny"}: ${t.text}`)
+    .join("\n")
+    .slice(0, 1200);
+
+  const instruction = [
+    "You are a children's storybook illustrator briefing a small image generation model.",
+    "Read the talk between Yoyo (a six-year-old girl) and Bunny (her plush companion). Imagine ONE specific, illustratable moment from that talk and describe it as a single paragraph the image model can render.",
+    "The reference image already locks Bunny's appearance (rainbow floppy ears, white fluffy fur, pink flower on head) — do NOT re-describe Bunny's body or fur or ears.",
+    "You MUST include each of these in your paragraph, in any order:",
+    "  • a concrete action or posture for both Yoyo and Bunny (e.g. 'splashing in shallow water', 'curled up reading', 'leaning over a puddle', 'whispering behind a hand') — never 'facing camera', never 'posing'",
+    "  • the camera angle / framing (e.g. 'low side angle', 'over-the-shoulder', 'wide overhead', 'close from below', 'three-quarter back view')",
+    "  • the setting and time of day (e.g. 'late afternoon golden light by a sunny pool', 'soft blue dusk in a small bedroom', 'cool morning park bench under maple leaves')",
+    "  • ONE small concrete detail tied to today's talk (a specific object, animal, plant, or weather hint that grounds the moment)",
+    "Keep it 35-60 words, one paragraph, plain prose. No lists, no quotes, no markdown.",
+    "AVOID: posed group portraits, both characters facing the camera, generic smiling, unspecified 'happy moment', the words 'polaroid' or 'photo'.",
+    "Output ONLY the scene paragraph itself — nothing else.",
+  ].join("\n");
+
+  const userBlock = [
+    trimmedSummary ? `Talk summary: ${trimmedSummary}` : "",
+    transcriptHint ? `Recent lines from the talk:\n${transcriptHint}` : "",
+    "Now write the single scene paragraph.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.openRouterApiKey}`,
+      "Content-Type": "application/json",
+      ...getOpenRouterHeaders(env),
+    },
+    body: JSON.stringify({
+      model: env.openRouterModel,
+      // High temperature so similar-feeling talks still produce visually
+      // distinct polaroids on the wall.
+      temperature: 0.95,
+      messages: [
+        { role: "system", content: instruction },
+        { role: "user", content: userBlock },
+      ],
+    }),
+  });
+
+  await expectOk(response, "OpenRouter polaroid scene failed.");
+  const payload = await response.json();
+  const raw = (payload?.choices?.[0]?.message?.content ?? "").toString().trim();
+  return raw.replace(/^["'`]+|["'`]+$/g, "").trim();
+}
+

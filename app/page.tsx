@@ -5,6 +5,7 @@ import { useBunnyCompanion } from "../lib/state/use-bunny-companion";
 import { useBunnyConversation } from "../lib/conversation/use-bunny-conversation";
 import {
   findSessionContainingMemory,
+  getAllSessions,
   getDistilledMemories,
   getLastSessionCloser,
   getRecentSummaries,
@@ -13,8 +14,10 @@ import {
   wipeAllMemory,
   type DailySession,
   type DistilledMemory,
+  type SessionCard,
   type SessionCloser,
 } from "../lib/memory/session-store";
+import type { Polaroid } from "../lib/memory/polaroid-store";
 import { defaultPresetMemoryRows } from "../lib/memory/preset-memory";
 import { useSessionSave } from "../lib/memory/use-session-save";
 import { useMusicPlayer } from "../lib/music/use-music-player";
@@ -33,6 +36,7 @@ import { CornerControls } from "../components/corner/corner-controls";
 import { BunnyStage } from "../components/stage/bunny-stage";
 import { CaptionZone } from "../components/stage/caption-zone";
 import { ChatlogPanel } from "../components/chatlog/chatlog-panel";
+import { PolaroidWall } from "../components/wall/polaroid-wall";
 
 function groupMemoriesByDate(memories: DistilledMemory[]): MemoryGroup[] {
   const buckets = new Map<string, DistilledMemory[]>();
@@ -99,10 +103,23 @@ export default function Home() {
   const [memories, setMemories] = useState<DistilledMemory[]>([]);
   const [memoryDetail, setMemoryDetail] = useState<DistilledMemory | null>(null);
   const [memoryDetailSession, setMemoryDetailSession] = useState<DailySession | null>(null);
-  // Bumped whenever a new session is archived so the polaroid wall
-  // inside the memory drawer re-fetches without subscribing to the
-  // session-save flow directly.
+  // Bumped whenever a new session is archived OR a polaroid generation
+  // settles. Drives the right-side polaroid wall and the memory drawer's
+  // session-card list in lockstep so both surfaces always agree.
   const [wallRefreshKey, setWallRefreshKey] = useState(0);
+  // Optimistic placeholder rendered immediately when save fires — gives
+  // the wall a "developing…" card to pin into place while Fal generates
+  // the real image (~10–15s). Cleared once the real polaroid lands or
+  // generation fails (the server row supersedes it on the next refetch).
+  const [optimisticPolaroid, setOptimisticPolaroid] = useState<Polaroid | null>(null);
+  // Drives the pin-drop animation + SFX for the most-recently added
+  // polaroid. Cleared by the wall after the animation plays out.
+  const [freshlyAddedPolaroidId, setFreshlyAddedPolaroidId] = useState<string | null>(null);
+  // Sessions cache keyed by id — the wall renders captions from these
+  // without each card having to fetch its own summary.
+  const [sessionsById, setSessionsById] = useState<Map<string, SessionCard>>(
+    () => new Map(),
+  );
   const music = useMusicPlayer(0.2);
   const [resetConfirming, setResetConfirming] = useState(false);
   const [memConfirmId, setMemConfirmId] = useState<string | null>(null);
@@ -117,6 +134,8 @@ export default function Home() {
   );
 
   // session save flow — distill + archive + refresh last-closer + summary
+  // + polaroid generation. The wall surfaces the optimistic placeholder
+  // immediately and reconciles to the real row on settle.
   const sessionSave = useSessionSave({
     getTurns: () => turns,
     getExistingMemories: () => memoriesRef.current.map((m) => m.content),
@@ -133,11 +152,46 @@ export default function Home() {
       // Summary arrived — refetch so the polaroid caption updates.
       setWallRefreshKey((k) => k + 1);
     },
+    onPolaroidPending: (placeholder) => {
+      setOptimisticPolaroid(placeholder);
+      setFreshlyAddedPolaroidId(placeholder.id);
+    },
+    onPolaroidSettled: (polaroid) => {
+      // Replace the optimistic placeholder with the persisted row, then
+      // refetch so the wall picks up the canonical state from Supabase
+      // (image_url, persisted layout, etc.).
+      if (polaroid) {
+        setOptimisticPolaroid(polaroid);
+        setFreshlyAddedPolaroidId(polaroid.id);
+      }
+      setWallRefreshKey((k) => k + 1);
+      // Clear the optimistic after a tick — the refetch will already
+      // have the authoritative row.
+      window.setTimeout(() => setOptimisticPolaroid(null), 1500);
+    },
   });
 
   useEffect(() => {
     memoriesRef.current = memories;
   }, [memories]);
+
+  // Refresh the session-card lookup whenever the wall is bumped. The
+  // wall asks for captions per polaroid and we want it to read from the
+  // freshest summary state without each card doing its own query.
+  useEffect(() => {
+    let cancelled = false;
+    void getAllSessions(60)
+      .then((list) => {
+        if (cancelled) return;
+        const map = new Map<string, SessionCard>();
+        for (const s of list) map.set(s.id, s);
+        setSessionsById(map);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [wallRefreshKey]);
 
   // mount-only: optional ?wipe=1 reset + load persisted memories + summaries +
   // last-closer + first-launch drama. Consolidated into one effect so that
@@ -412,6 +466,14 @@ export default function Home() {
         onBunnyPress={handleBunnyPress}
         onMicClick={onClickMic}
         caption={captionBlock}
+      />
+
+      <PolaroidWall
+        refreshKey={wallRefreshKey}
+        optimisticPolaroid={optimisticPolaroid}
+        sessionsById={sessionsById}
+        freshlyAddedId={freshlyAddedPolaroidId}
+        onClearFreshlyAdded={() => setFreshlyAddedPolaroidId(null)}
       />
 
       <CornerControls
