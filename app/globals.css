@@ -24,6 +24,15 @@ body {
   overflow: hidden;
 }
 
+/* Parent-only pages (setup + dashboard) need normal scrolling — the child
+   play page locks overflow to keep the iPad stage stable, but parent forms
+   are tall and must scroll. Re-enable scroll when .parent-shell is mounted. */
+html:has(.parent-shell),
+body:has(.parent-shell) {
+  height: auto;
+  overflow: auto;
+}
+
 body {
   font-family: "Inter", system-ui, sans-serif;
   color: var(--ink);
