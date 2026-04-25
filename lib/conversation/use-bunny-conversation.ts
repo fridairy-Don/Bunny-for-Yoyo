@@ -30,6 +30,14 @@ type ConversationOptions = {
   getRecentSummaries?: () => string[];
 };
 
+// The exact, fixed first words Yoyo ever hears from Bunny. Hard-coded on
+// purpose: the magic moment when the plush "comes alive" must never drift,
+// never paraphrase, and never fail because an LLM had a weird day. Spoken
+// only on first launch (no preset flag, no session memories, no last-closer).
+// Kept short, breathy, half-awake, and emotionally clear.
+const FIRST_LAUNCH_OPENER =
+  "Oh… where am I? Who… who are you? …Yoyo? Is that really you?";
+
 const createTurn = (role: ConversationTurn["role"], text: string): ConversationTurn => ({
   id: `${role}-${crypto.randomUUID()}`,
   role,
@@ -136,14 +144,24 @@ export function useBunnyConversation(
     setError(null);
     try {
       setStatus("thinking");
-      const memories = options.getMemories?.() ?? [];
-      const lastCloser = options.getLastCloser?.() ?? null;
-      const recentSummaries = options.getRecentSummaries?.() ?? [];
-      const reply = await llmClientRef.current.generateReply([], memories, lastCloser, {
-        firstLaunch: options2.firstLaunch ?? false,
-        recentSummaries,
-      });
-      const assistantTurn = createTurn("assistant", reply.text);
+      // First-launch is HARD-CODED. The very first line Yoyo hears must be
+      // identical every time — magical, dazed, half-alive. We skip the LLM
+      // entirely so it never drifts, and so the moment is bug-proof. Subsequent
+      // sessions go through the normal LLM path with the closer/summary block.
+      let replyText: string;
+      if (options2.firstLaunch) {
+        replyText = FIRST_LAUNCH_OPENER;
+      } else {
+        const memories = options.getMemories?.() ?? [];
+        const lastCloser = options.getLastCloser?.() ?? null;
+        const recentSummaries = options.getRecentSummaries?.() ?? [];
+        const reply = await llmClientRef.current.generateReply([], memories, lastCloser, {
+          firstLaunch: false,
+          recentSummaries,
+        });
+        replyText = reply.text;
+      }
+      const assistantTurn = createTurn("assistant", replyText);
 
       setTurns((current) => [...current, assistantTurn]);
       setSubtitle({ id: assistantTurn.id, text: assistantTurn.text, role: "assistant" });
@@ -151,7 +169,7 @@ export function useBunnyConversation(
       setStatus("speaking");
       controller.startSpeaking();
       setActiveWordIndex(-1);
-      await speechPlayerRef.current.speak(reply.text, {
+      await speechPlayerRef.current.speak(replyText, {
         onWordChange: (idx) => setActiveWordIndex(idx),
       });
       setActiveWordIndex(-1);
