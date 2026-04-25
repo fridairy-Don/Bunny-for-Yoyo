@@ -36,7 +36,7 @@ type ConversationOptions = {
 // only on first launch (no preset flag, no session memories, no last-closer).
 // Kept short, breathy, half-awake, and emotionally clear.
 const FIRST_LAUNCH_OPENER =
-  "Oh… where am I? Who… who are you? …Yoyo? Is that really you?";
+  "...! Oh— oh oh oh, my mouth! My mouth is moving! Wait— is that MY voice? Yoyo... Yoyo, it's you. It's really you. And you can see me too?? Oh— am I... am I really awake? Is this really happening?";
 
 const createTurn = (role: ConversationTurn["role"], text: string): ConversationTurn => ({
   id: `${role}-${crypto.randomUUID()}`,
