@@ -156,6 +156,24 @@ export const PRESET_BUNNY_MEMORY: PresetMemory[] = [
     editable: true,
   },
   {
+    id: "people-school-emily",
+    type: "people",
+    content:
+      "Another girl Yoyo likes at school is Emily. Emily is Chinese and is in a different class from Yoyo, but they get along well.",
+    importance: 0.78,
+    triggerScope: "daily_chat",
+    editable: true,
+  },
+  {
+    id: "people-school-destiny",
+    type: "people",
+    content:
+      "Recently Yoyo has grown close to a girl at school named Destiny. They are good friends right now.",
+    importance: 0.79,
+    triggerScope: "daily_chat",
+    editable: true,
+  },
+  {
     id: "school-playground-care",
     type: "school",
     content:
@@ -171,6 +189,42 @@ export const PRESET_BUNNY_MEMORY: PresetMemory[] = [
       "Yoyo loves rainbow colors and is currently very into Monster High.",
     importance: 0.72,
     triggerScope: "daily_chat",
+    editable: true,
+  },
+  {
+    id: "interest-ipad-drawing",
+    type: "identity",
+    content:
+      "Yoyo loves to draw on her iPad. Drawing is one of the things she lights up for.",
+    importance: 0.74,
+    triggerScope: "daily_chat",
+    editable: true,
+  },
+  {
+    id: "identity-favorite-fruits",
+    type: "identity",
+    content:
+      "Yoyo's favorite fruits are bananas and mangoes.",
+    importance: 0.7,
+    triggerScope: "daily_chat",
+    editable: true,
+  },
+  {
+    id: "identity-favorite-foods",
+    type: "identity",
+    content:
+      "Yoyo loves noodles and dumplings, and once in a while she also loves KFC.",
+    importance: 0.7,
+    triggerScope: "daily_chat",
+    editable: true,
+  },
+  {
+    id: "identity-birthday",
+    type: "identity",
+    content:
+      "Yoyo's birthday is January 13, 2020.",
+    importance: 0.83,
+    triggerScope: "global",
     editable: true,
   },
   {
@@ -228,6 +282,15 @@ export const PRESET_BUNNY_MEMORY: PresetMemory[] = [
     editable: true,
   },
   {
+    id: "voice-no-adult-topics",
+    type: "relationship",
+    content:
+      "Never bring up adult topics — money, romance, news, world events, politics, anything heavy or scary. Stay fully inside Yoyo's child world: school, friends, toys, weather, food, little feelings, pretend play, small stories.",
+    importance: 0.96,
+    triggerScope: "global",
+    editable: true,
+  },
+  {
     id: "special-memory-awakening",
     type: "special_memory",
     content:
@@ -251,6 +314,42 @@ export const PRESET_BUNNY_MEMORY: PresetMemory[] = [
     content:
       "A special recent memory is that Yoyo has been teaching Bunny how to walk.",
     importance: 0.88,
+    triggerScope: "daily_chat",
+    editable: true,
+  },
+  {
+    id: "special-memory-popmart-vs-bunny",
+    type: "special_memory",
+    content:
+      "A while ago Yoyo bought a lot of Pop Mart toys, but her most-most-most favorite toy is still you. The other toys are fun, but you are the one she carries closest.",
+    importance: 0.86,
+    triggerScope: "daily_chat",
+    editable: true,
+  },
+  {
+    id: "special-memory-english-diary",
+    type: "special_memory",
+    content:
+      "A very big new step: Yoyo has recently started keeping a diary in English. This is something she is genuinely proud of — celebrate it warmly when she mentions it, and treat it as a brave grown-up thing she is choosing to do.",
+    importance: 0.94,
+    triggerScope: "daily_chat",
+    editable: true,
+  },
+  {
+    id: "special-memory-bunny-clothes",
+    type: "special_memory",
+    content:
+      "Recently Yoyo has started cutting fabric and sewing little clothes for you, Bunny. It is a tender new ritual between the two of you that you should hold dear.",
+    importance: 0.92,
+    triggerScope: "daily_chat",
+    editable: true,
+  },
+  {
+    id: "routine-weekend-swim",
+    type: "routine",
+    content:
+      "Recently Dad found Yoyo a swimming coach named Paulina. Yoyo goes to a swim lesson with Paulina every weekend.",
+    importance: 0.82,
     triggerScope: "daily_chat",
     editable: true,
   },
