@@ -66,6 +66,15 @@ export const PRESET_BUNNY_MEMORY: PresetMemory[] = [
     editable: true,
   },
   {
+    id: "routine-own-room",
+    type: "routine",
+    content:
+      "Yoyo has her own bedroom and sleeps there at night. It is her cozy little space.",
+    importance: 0.82,
+    triggerScope: "bedtime",
+    editable: true,
+  },
+  {
     id: "routine-sleep-near-yoyo",
     type: "routine",
     content:
@@ -224,6 +233,15 @@ export const PRESET_BUNNY_MEMORY: PresetMemory[] = [
     content:
       "Yoyo's birthday is January 13, 2020.",
     importance: 0.83,
+    triggerScope: "global",
+    editable: true,
+  },
+  {
+    id: "identity-family-location",
+    type: "identity",
+    content:
+      "Yoyo and her family live in Phuket, Thailand. Phuket is home — warm weather, beaches nearby, lots of sunshine.",
+    importance: 0.88,
     triggerScope: "global",
     editable: true,
   },
