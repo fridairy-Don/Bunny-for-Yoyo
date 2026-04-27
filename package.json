@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "NEXT_DIST_DIR=.next-dev next dev",
-    "dev:https": "NEXT_DIST_DIR=.next-dev next dev --experimental-https --experimental-https-key ./certificates/lan-key.pem --experimental-https-cert ./certificates/lan-cert.pem",
+    "dev:https": "NEXT_DIST_DIR=.next-dev next dev -H 0.0.0.0 --experimental-https --experimental-https-key ./certificates/lan-key.pem --experimental-https-cert ./certificates/lan-cert.pem",
     "build": "NEXT_DIST_DIR=.next-build next build",
     "start": "NEXT_DIST_DIR=.next-build next start",
     "test": "vitest run",
