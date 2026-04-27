@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BUNNY_CHARACTER, MOCK_SESSION_TURNS } from "../config/character";
 import { createAudioRecorder } from "../audio/browser-recorder";
+import { notifyAudioSessionAfterRelease } from "../audio/audio-session";
 import { ApiSpeechToTextClient } from "../stt/api-stt-client";
 import { ApiLlmClient } from "../llm/api-llm-client";
 import { ApiSpeechPlayer } from "../tts/api-speech-player";
@@ -91,6 +92,16 @@ export function useBunnyConversation(
     }
 
     try {
+      // Wake the audio sinks NOW, while we are still synchronously inside
+      // the user-gesture chain that started from the mic-stop tap. iOS
+      // Safari only honours AudioContext.resume() and HTMLAudioElement
+      // .play() when there's an active user-activation flag — and that
+      // flag dies once we hit the first await. Firing here is what makes
+      // background music return + Bunny's TTS audible after recording.
+      // The recorder's onstop handler will fire it again at +80ms / +240ms
+      // to catch iOS finishing its session-category flip.
+      notifyAudioSessionAfterRelease();
+
       setStatus("transcribing");
       // Drop "listening" interaction state the instant Yoyo taps stop — the
       // mic ripples stop immediately instead of spinning for 2–5s while STT
