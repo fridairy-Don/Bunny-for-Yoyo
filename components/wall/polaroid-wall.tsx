@@ -171,24 +171,35 @@ export function PolaroidWall({
             >
               {fanned ? (
                 <div className="wall-fan">
-                  {stack.items.map((p, i) => (
-                    <div
-                      key={p.id}
-                      className="wall-fan-item"
-                      style={{
-                        transform: `translate(calc(-50% + ${(i - (stack.items.length - 1) / 2) * 84}px), 0) rotate(${(i - (stack.items.length - 1) / 2) * 4}deg)`,
-                      }}
-                    >
-                      <PolaroidCard
-                        polaroid={p}
-                        caption={captionFor(p)}
-                        isTop
-                        stackIndex={0}
-                        freshlyAdded={false}
-                        onClick={() => setDetailPolaroid(p)}
-                      />
-                    </div>
-                  ))}
+                  {stack.items.map((p, i) => {
+                    // Card center spacing scales with how many photos are
+                    // in the fan. With 2 photos a wider spread reads as a
+                    // diptych; with 4+ we tighten so they all stay on the
+                    // 760px container without overflowing.
+                    const count = stack.items.length;
+                    const spacing = count <= 2 ? 150 : count <= 3 ? 130 : 110;
+                    const tilt = count <= 2 ? 3 : 4;
+                    const offset = (i - (count - 1) / 2) * spacing;
+                    const rot = (i - (count - 1) / 2) * tilt;
+                    return (
+                      <div
+                        key={p.id}
+                        className="wall-fan-item"
+                        style={{
+                          transform: `translate(calc(-50% + ${offset}px), -50%) rotate(${rot}deg)`,
+                        }}
+                      >
+                        <PolaroidCard
+                          polaroid={p}
+                          caption={captionFor(p)}
+                          isTop
+                          stackIndex={0}
+                          freshlyAdded={false}
+                          onClick={() => setDetailPolaroid(p)}
+                        />
+                      </div>
+                    );
+                  })}
                   {stack.items.length > 1 ? (
                     <div className="wall-fan-count">
                       {stack.items.length} from this day
