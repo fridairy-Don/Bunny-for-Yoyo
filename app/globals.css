@@ -2657,3 +2657,59 @@ body.sleeping .wall {
     display: none !important;
   }
 }
+
+/* ─── Add-to-Home-Screen / standalone-mode polish ────────────────────── */
+/* iPad Safari, when launched from the home screen, runs the page as a
+   standalone app: no address bar, no nav buttons, no tabs. We need a
+   couple of small adjustments so it actually feels like an app instead
+   of a chromeless web page. */
+
+/* When matched, iOS Safari has launched us standalone. Modern syntax
+   `display-mode: standalone` works on iOS 16.4+; older iOS uses the
+   navigator.standalone JS check, but for visual tweaks the media
+   query is enough — older iPad Air 5 / iPadOS already supports it. */
+@media (display-mode: standalone) {
+  /* Lock the visible scroll surface to the document so the bunny page
+     never rubber-bands on a vertical drag. The chat panel and drawer
+     have their own internal overflow regions; those still scroll. */
+  html,
+  body {
+    overscroll-behavior: none;
+    /* Avoid the iOS double-tap-to-zoom on UI elements when running
+       standalone — by then it's an app, not a webpage. */
+    touch-action: manipulation;
+    /* Use the safe-area insets so the cream background actually
+       reaches the screen edge under the iPad bezel cut-outs. The
+       inner content already has its own padding, so additional safe-
+       area math isn't needed for layout. */
+    background-color: #fae9d9;
+  }
+
+  /* Hide the long-press text-selection callout on tap-only surfaces
+     (bunny image, mic). Captions stay selectable for parents who want
+     to copy text. */
+  .bunny,
+  .mic,
+  .corner button,
+  .wall-polaroid {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* Pull the fixed top chrome down past the iPad rounded-corner /
+     status-bar safe area when launched standalone in landscape. */
+  .chrome {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 4px);
+  }
+  /* Same for the right-side polaroid wall and bottom corner controls. */
+  .wall {
+    top: calc(env(safe-area-inset-top, 0px) + 90px);
+    right: calc(env(safe-area-inset-right, 0px) + 16px);
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 86px);
+  }
+  .corner {
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+    right: calc(env(safe-area-inset-right, 0px) + 16px);
+  }
+}
