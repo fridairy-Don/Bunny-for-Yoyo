@@ -28,6 +28,12 @@ describe("getChildFriendlyErrorCaption", () => {
     expect(getChildFriendlyErrorCaption("transcription_failed")).toMatch(/fuzzy/);
   });
 
+  it("maps insecure-context (HTTP on iPad) to an HTTPS hint", () => {
+    expect(getChildFriendlyErrorCaption("microphone_insecure_context")).toMatch(
+      /https/,
+    );
+  });
+
   it("maps LLM errors", () => {
     expect(getChildFriendlyErrorCaption("chat_request_failed")).toMatch(/lost my words/);
     expect(getChildFriendlyErrorCaption("llm_500")).toMatch(/lost my words/);

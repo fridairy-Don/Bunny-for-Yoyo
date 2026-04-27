@@ -39,6 +39,10 @@ function getCaptureProblemMessage(capture: RecorderCapture) {
     return "microphone_unsupported";
   }
 
+  if (capture.problem === "insecure_context") {
+    return "microphone_insecure_context";
+  }
+
   if (capture.problem === "permission_denied") {
     return "microphone_permission_denied";
   }

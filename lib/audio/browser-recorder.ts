@@ -29,9 +29,25 @@ class BrowserAudioRecorder implements AudioRecorder {
   async start() {
     if (!this.isSupported) {
       this.startedAt = Date.now();
-      this.startProblem = "unsupported";
-      debugAudio("start_unsupported", getAudioCapabilitySnapshot());
-      throw new Error("microphone_unsupported");
+      // iOS Safari (and modern Chrome) only expose navigator.mediaDevices
+      // on secure origins — HTTPS or localhost. When Yoyo opens the LAN
+      // dev URL on an iPad over plain HTTP, getUserMedia is silently
+      // missing, which used to surface as "try a different browser".
+      // The fix is HTTPS, not a different browser, so distinguish the
+      // two cases here and let the caption layer say the right thing.
+      const insecure =
+        typeof window !== "undefined" &&
+        window.isSecureContext === false &&
+        window.location.hostname !== "localhost" &&
+        window.location.hostname !== "127.0.0.1";
+      this.startProblem = insecure ? "insecure_context" : "unsupported";
+      debugAudio("start_unsupported", {
+        ...getAudioCapabilitySnapshot(),
+        problem: this.startProblem,
+      });
+      throw new Error(
+        insecure ? "microphone_insecure_context" : "microphone_unsupported",
+      );
     }
 
     try {

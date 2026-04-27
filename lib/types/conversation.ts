@@ -26,7 +26,13 @@ export type RecorderCapture = {
   durationMs: number;
   mimeType: string;
   maxInputLevel: number;
-  problem?: "unsupported" | "permission_denied" | "empty_audio" | "silent_audio" | "recorder_error";
+  problem?:
+    | "unsupported"
+    | "insecure_context"
+    | "permission_denied"
+    | "empty_audio"
+    | "silent_audio"
+    | "recorder_error";
 };
 
 export type SpeechToTextResult = {

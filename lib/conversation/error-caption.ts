@@ -12,6 +12,13 @@ export function getChildFriendlyErrorCaption(error: string | null): string | nul
   if (e.includes("silent") || e.includes("empty_audio")) {
     return "Hmm, I didn't catch that. Try saying it a little louder.";
   }
+  // iPad over plain HTTP can't open the mic — Safari hides
+  // navigator.mediaDevices on insecure origins. Tell the parent (not Yoyo)
+  // that the URL needs to be HTTPS, instead of the misleading "try a
+  // different browser" caption we used to show.
+  if (e.includes("insecure") || e.includes("secure_context")) {
+    return "This page needs a secure (https://) link before the mic can listen.";
+  }
   if (e.includes("unsupported")) {
     return "This place doesn't have ears. Try a different browser.";
   }
