@@ -1974,16 +1974,39 @@ body.sleeping .wall {
 
 /* Dim layer behind the fanned stack — taps anywhere off the fan
    collapse it. Sits between the wall (z=4) and the fan (z=40). */
+/* Top-level wrapper for the portaled fan overlay. Lives at root in the
+   stacking order so its children (backdrop + fan stage) render above
+   the wall (z=4) without inheriting any nested stacking context. */
+.wall-fan-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  pointer-events: none;
+}
+.wall-fan-overlay > * {
+  pointer-events: auto;
+}
 .wall-fan-backdrop {
   position: fixed;
   inset: 0;
   /* Stronger dim + blur so the bunny stage clearly recedes when the
-     fan opens — the fanned cards are the focus, not Bunny. */
+     fan opens — the fanned cards are the focus, not Bunny.
+     The blur ONLY blurs what is rendered BEHIND this element, so the
+     sibling .wall-fan-stage (which sits above) stays crisp. */
   background: oklch(0.18 0.02 40 / 0.52);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  z-index: 35;
+  z-index: 1;
   animation: wall-fan-backdrop-in 0.2s ease-out;
+}
+.wall-fan-stage {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(92vw, 760px);
+  height: 460px;
+  z-index: 2;
 }
 @keyframes wall-fan-backdrop-in {
   from { opacity: 0; }
@@ -2298,7 +2321,7 @@ body.sleeping .wall {
      spread and slightly smaller cards keep two photos comfortably
      side by side. */
   .wall-fan-item { width: min(42vw, 220px); }
-  .wall-stack.fanned {
+  .wall-fan-stage {
     width: 96vw;
     height: 80vh;
     max-height: 460px;
@@ -2616,6 +2639,7 @@ body.sleeping .wall {
   .chatlog,
   .wall,
   .wall-fan-backdrop,
+  .wall-fan-overlay,
   .wall-detail-backdrop,
   .corner,
   .drawer,

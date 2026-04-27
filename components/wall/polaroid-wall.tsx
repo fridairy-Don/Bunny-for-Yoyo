@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import {
   getPolaroids,
@@ -134,19 +135,19 @@ export function PolaroidWall({
     return "a quiet talk we had.";
   }
 
+  // The fanned stack must NOT live inside `.wall` — `.wall` is
+  // `position: fixed; z-index: 4`, which establishes a stacking context
+  // that traps any descendant (no matter how high its own z-index)
+  // BELOW the wall-fan-backdrop (z=35) sibling. The visible symptom was
+  // the backdrop's `backdrop-filter: blur(8px)` blurring the fanned
+  // cards along with the bunny stage. We portal the entire fan overlay
+  // (backdrop + spread cards) to document.body so it lives in the root
+  // stacking context, where its z-index actually wins against the
+  // backdrop.
+  const fannedStack = openDate ? stacks.find((s) => s.date === openDate) ?? null : null;
+
   return (
     <>
-      {/* Dim backdrop while a stack is fanned out — sits below the fan
-          (z=40) but above the rest of the wall, so a tap anywhere off
-          the fan collapses it back without dragging in the click-outside
-          listener's edge cases. */}
-      {openDate ? (
-        <div
-          className="wall-fan-backdrop"
-          onClick={() => setOpenDate(null)}
-          aria-hidden="true"
-        />
-      ) : null}
       <div className="wall" ref={wallRef} aria-label="Bunny's polaroid wall">
         {loading && stacks.length === 0 ? (
           <div className="wall-empty">looking through old talks…</div>
@@ -164,49 +165,26 @@ export function PolaroidWall({
           const topItem = stack.items[0];
           const visibleStack = stack.items.slice(0, 3); // peek depth
 
+          // Hide the stack's wall-column thumbnails while it is fanned
+          // out — the portal renders the enlarged copy. We keep the
+          // empty `.wall-stack` div mounted so the wall column does not
+          // visually collapse and re-flow when the user opens the fan.
+          if (fanned) {
+            return (
+              <div
+                key={stack.date}
+                className="wall-stack fanned-placeholder"
+                aria-hidden="true"
+              />
+            );
+          }
+
           return (
             <div
               key={stack.date}
-              className={`wall-stack ${fanned ? "fanned" : ""}`}
+              className="wall-stack"
             >
-              {fanned ? (
-                <div className="wall-fan">
-                  {stack.items.map((p, i) => {
-                    // Card center spacing scales with how many photos are
-                    // in the fan. With 2 photos a wider spread reads as a
-                    // diptych; with 4+ we tighten so they all stay on the
-                    // 760px container without overflowing.
-                    const count = stack.items.length;
-                    const spacing = count <= 2 ? 150 : count <= 3 ? 130 : 110;
-                    const tilt = count <= 2 ? 3 : 4;
-                    const offset = (i - (count - 1) / 2) * spacing;
-                    const rot = (i - (count - 1) / 2) * tilt;
-                    return (
-                      <div
-                        key={p.id}
-                        className="wall-fan-item"
-                        style={{
-                          transform: `translate(calc(-50% + ${offset}px), -50%) rotate(${rot}deg)`,
-                        }}
-                      >
-                        <PolaroidCard
-                          polaroid={p}
-                          caption={captionFor(p)}
-                          isTop
-                          stackIndex={0}
-                          freshlyAdded={false}
-                          onClick={() => setDetailPolaroid(p)}
-                        />
-                      </div>
-                    );
-                  })}
-                  {stack.items.length > 1 ? (
-                    <div className="wall-fan-count">
-                      {stack.items.length} from this day
-                    </div>
-                  ) : null}
-                </div>
-              ) : (
+              {(
                 <>
                   {visibleStack
                     .slice()
@@ -243,6 +221,58 @@ export function PolaroidWall({
           );
         })}
       </div>
+
+      {/* Fan overlay — portaled to <body> so the backdrop's blur filter
+          does NOT bleed onto the fanned cards. (Inside .wall the fanned
+          stack would inherit .wall's z-index:4 stacking context and
+          render below the backdrop's blur, which is exactly what made
+          the cards look smeared in the iPad screenshot.) */}
+      {fannedStack && typeof document !== "undefined"
+        ? createPortal(
+            <div className="wall-fan-overlay" role="dialog" aria-modal="true">
+              <div
+                className="wall-fan-backdrop"
+                onClick={() => setOpenDate(null)}
+                aria-hidden="true"
+              />
+              <div className="wall-fan-stage">
+                <div className="wall-fan">
+                  {fannedStack.items.map((p, i) => {
+                    const count = fannedStack.items.length;
+                    const spacing = count <= 2 ? 150 : count <= 3 ? 130 : 110;
+                    const tilt = count <= 2 ? 3 : 4;
+                    const offset = (i - (count - 1) / 2) * spacing;
+                    const rot = (i - (count - 1) / 2) * tilt;
+                    return (
+                      <div
+                        key={p.id}
+                        className="wall-fan-item"
+                        style={{
+                          transform: `translate(calc(-50% + ${offset}px), -50%) rotate(${rot}deg)`,
+                        }}
+                      >
+                        <PolaroidCard
+                          polaroid={p}
+                          caption={captionFor(p)}
+                          isTop
+                          stackIndex={0}
+                          freshlyAdded={false}
+                          onClick={() => setDetailPolaroid(p)}
+                        />
+                      </div>
+                    );
+                  })}
+                  {fannedStack.items.length > 1 ? (
+                    <div className="wall-fan-count">
+                      {fannedStack.items.length} from this day
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
 
       {detailPolaroid ? (
         <PolaroidDetail
