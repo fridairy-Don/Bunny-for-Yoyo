@@ -95,17 +95,33 @@ export function PolaroidWall({
 
   // Listen for outside clicks while a stack is fanned to collapse it,
   // so a tap on bunny / wall background closes it gracefully.
+  //
+  // The listener is registered with a one-frame delay so the same touch
+  // gesture that OPENED the fan does not immediately close it. iOS in
+  // particular fires a synthetic pointerdown on the underlying element
+  // when a button's React onClick triggers a re-render that removes the
+  // original button mid-gesture — that synthetic event was landing on
+  // the wall background and instantly setting openDate back to null,
+  // making the fan look like it never opened.
   const wallRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!openDate) return;
+    let armed = false;
+    const arm = window.setTimeout(() => {
+      armed = true;
+    }, 0);
     const onDoc = (e: MouseEvent) => {
+      if (!armed) return;
       const root = wallRef.current;
       if (!root) return;
       if (e.target instanceof Node && root.contains(e.target)) return;
       setOpenDate(null);
     };
     window.addEventListener("pointerdown", onDoc);
-    return () => window.removeEventListener("pointerdown", onDoc);
+    return () => {
+      window.clearTimeout(arm);
+      window.removeEventListener("pointerdown", onDoc);
+    };
   }, [openDate]);
 
   function captionFor(polaroid: Polaroid): string {

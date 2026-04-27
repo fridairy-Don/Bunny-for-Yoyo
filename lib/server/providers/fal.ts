@@ -81,11 +81,18 @@ export async function generatePolaroidImage(prompt: string): Promise<FalGenerati
       body: JSON.stringify({
         prompt,
         // Nano Banana Edit takes an array of reference image URLs (we
-        // pass a single data URI). It does not accept guidance_scale,
-        // output_format, or aspect_ratio — keep the body minimal so the
-        // model defaults apply.
+        // pass a single data URI). We DO want explicit aspect_ratio +
+        // output_format here — without them the model picks defaults
+        // that match the input image (portrait 934×1040), and we end
+        // up with a non-1:1 polaroid that the wall has to letterbox or
+        // upscale. 1:1 forces the native 1024×1024 render which looks
+        // sharp on Retina at the detail-modal size (840 device px).
+        // JPEG keeps the storage object small enough that the wall
+        // loads fast on iPad LTE.
         image_urls: [dataUri],
         num_images: 1,
+        aspect_ratio: "1:1",
+        output_format: "jpeg",
       }),
       signal: controller.signal,
     });

@@ -8,8 +8,14 @@ import "server-only";
 const YOYO_BRIEF =
   "a six-year-old chibi-style girl with a chin-length soft black bob haircut, big bright curious eyes, and a small gentle smile";
 
+// Style anchor — kept warm + storybook, but explicitly clean / sharp /
+// crisp lines so the model does NOT smear edges into watercolor mush.
+// Earlier "dreamy hazy lighting" + "soft pastel watercolor" was reading
+// as "make it blurry," which made every wall thumbnail look out of focus
+// at the detail-modal size on iPad. Keeping the warm cream-and-rose
+// palette but pushing the lineart cleaner.
 const STYLE_ANCHOR =
-  "soft pastel watercolor children storybook illustration, cream and dusty pink palette, dreamy hazy lighting, chibi proportions, no text, no realistic detailed human face.";
+  "warm storybook illustration with clean crisp lines, gentle cream and dusty pink palette, soft warm afternoon light with clear focus and visible detail, chibi proportions, no text, no realistic detailed human face.";
 
 // Build the full image prompt for one polaroid. The interesting variety
 // comes from `scene` — an LLM-generated paragraph describing a specific
