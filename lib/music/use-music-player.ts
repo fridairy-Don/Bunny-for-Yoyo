@@ -9,6 +9,10 @@ import {
   listLocalTracks,
   type LocalTrack,
 } from "../audio/local-library";
+import {
+  onAudioSessionAfterRelease,
+  onAudioSessionBeforeAcquire,
+} from "../audio/audio-session";
 import { BUILTIN_TRACKS, type MusicTrack } from "../config/music";
 
 export type PlayableTrack = {
@@ -83,6 +87,12 @@ export function useMusicPlayer(initialVolume = 0.2): MusicPlayerApi {
   // Only touch audio.src when the track truly changes, otherwise every render
   // would reload the file and trip spurious error events.
   const loadedTrackIdRef = useRef<string | null>(null);
+  // iOS Safari pauses our HTMLAudioElement the instant getUserMedia starts.
+  // Remember the user's intended play state at that moment so we can flip
+  // it back on after the mic releases — without this, the "pause" event
+  // fired by iOS turns into a permanent stop.
+  const intentRef = useRef(false);
+  const sessionInterruptedRef = useRef(false);
 
   const tracks: PlayableTrack[] = useMemo(
     () => [...BUILTIN_TRACKS.map(builtInAsPlayable), ...localTracks.map(localAsPlayable)],
@@ -95,11 +105,20 @@ export function useMusicPlayer(initialVolume = 0.2): MusicPlayerApi {
     const audio = new Audio();
     audio.preload = "none";
     audio.volume = volume;
+    // iOS standalone PWA needs this to keep playing on the lock screen
+    // and behind other audio; harmless on every other browser.
+    audio.setAttribute("playsinline", "");
     audio.addEventListener("play", () => {
       setPlaying(true);
       setAudioError(false);
     });
-    audio.addEventListener("pause", () => setPlaying(false));
+    audio.addEventListener("pause", () => {
+      // Don't drop the user-intent state if iOS just paused us because
+      // the mic took over the audio session. The session-release handler
+      // below will flip playback back on.
+      if (sessionInterruptedRef.current) return;
+      setPlaying(false);
+    });
     audio.addEventListener("error", () => {
       // Only surface an error if there is actually a src loaded. Setting
       // audio.src to "" or hot-reloading during dev can otherwise trip a
@@ -119,6 +138,44 @@ export function useMusicPlayer(initialVolume = 0.2): MusicPlayerApi {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // keep the intent ref aligned with the latest user-driven play state.
+  useEffect(() => {
+    intentRef.current = playing;
+  }, [playing]);
+
+  // iOS Safari hijacks the audio session when the mic opens. Remember
+  // whether music was playing, swallow the spurious "pause" event, and
+  // re-issue play() after the mic releases. Without this, every mic tap
+  // permanently silences the background music.
+  useEffect(() => {
+    const offAcquire = onAudioSessionBeforeAcquire(() => {
+      // The "playing -> intentRef" effect above keeps intentRef in sync,
+      // so we don't have to overwrite it here. We just need the flag so
+      // the spurious iOS-pause event below doesn't drop the React state.
+      sessionInterruptedRef.current = true;
+    });
+    const offRelease = onAudioSessionAfterRelease(() => {
+      sessionInterruptedRef.current = false;
+      const audio = audioRef.current;
+      if (!audio) return;
+      if (!intentRef.current) return;
+      // Force a fresh play() call. iOS will not resume on its own — it
+      // needs the gesture-derived audio session that was active at the
+      // start of recorder.stop() to drive a new play.
+      const result = audio.play();
+      if (result && typeof result.catch === "function") {
+        result.catch(() => undefined);
+      }
+      // Make sure the React state catches up so the play/pause UI is in
+      // sync with the actual playback.
+      setPlaying(true);
+    });
+    return () => {
+      offAcquire();
+      offRelease();
+    };
+  }, [playing]);
 
   // advance behaviour on end depends on the current play mode.
   useEffect(() => {

@@ -1,6 +1,10 @@
 "use client";
 
 import type { RecorderCapture } from "../types/conversation";
+import {
+  notifyAudioSessionAfterRelease,
+  notifyAudioSessionBeforeAcquire,
+} from "./audio-session";
 
 export type AudioRecorder = {
   isSupported: boolean;
@@ -49,6 +53,12 @@ class BrowserAudioRecorder implements AudioRecorder {
         insecure ? "microphone_insecure_context" : "microphone_unsupported",
       );
     }
+
+    // Tell every other audio sink on the page (background music, TTS bus,
+    // pin SFX) that we're about to take over the audio session. On iOS
+    // Safari the music hook uses this to remember its desired play state
+    // before iOS auto-pauses it.
+    notifyAudioSessionBeforeAcquire();
 
     try {
       // Disable echoCancellation / autoGainControl / noiseSuppression:
@@ -101,12 +111,18 @@ class BrowserAudioRecorder implements AudioRecorder {
         errorName: cause instanceof DOMException ? cause.name : getErrorName(cause),
         errorMessage: cause instanceof Error ? cause.message : String(cause),
       });
+      // The mic never actually opened — release any audio sinks that
+      // pre-emptively paused themselves on the acquire signal above.
+      void notifyAudioSessionAfterRelease();
       throw new Error(this.startProblem);
     }
   }
 
   async stop() {
     if (!this.mediaRecorder) {
+      // Nothing was actually recording — but if we'd notified subscribers
+      // on acquire (or the recorder was half-initialised), release them.
+      void notifyAudioSessionAfterRelease();
       return {
         blob: new Blob([], { type: "audio/webm" }),
         durationMs: Math.max(Date.now() - this.startedAt, 1200),
@@ -137,6 +153,11 @@ class BrowserAudioRecorder implements AudioRecorder {
           problem,
           size: blob.size,
         });
+
+        // Tracks are stopped — let iOS finish flipping its audio session
+        // category back, then wake the music + TTS sinks. Fire-and-forget
+        // so we don't delay returning the capture to the conversation.
+        void notifyAudioSessionAfterRelease();
 
         resolve({
           blob,

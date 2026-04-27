@@ -1,5 +1,7 @@
 "use client";
 
+import { onAudioSessionAfterRelease } from "./audio-session";
+
 // A single shared audio bus. Background music stays on a plain <audio>
 // element (so the UI can keep controlling play/pause/volume simply), and
 // TTS is routed through Web Audio via decodeAudioData + an
@@ -20,6 +22,7 @@ class AudioBus {
   private ttsGain: GainNode | null = null;
   private activeSource: AudioBufferSourceNode | null = null;
   private activeRaf: number | null = null;
+  private sessionUnsub: (() => void) | null = null;
 
   private async ensureCtx(): Promise<AudioContext | null> {
     if (typeof window === "undefined") return null;
@@ -32,10 +35,23 @@ class AudioBus {
       this.ttsGain = this.ctx.createGain();
       this.ttsGain.gain.value = 1.0;
       this.ttsGain.connect(this.ctx.destination);
+      // After every mic recording iOS suspends this context. Resume the
+      // moment the recorder signals release so Bunny's voice plays even
+      // when the user hasn't interacted with the page since the mic.
+      if (!this.sessionUnsub) {
+        this.sessionUnsub = onAudioSessionAfterRelease(() => {
+          const ctx = this.ctx;
+          if (!ctx) return;
+          if (ctx.state !== "running") {
+            void ctx.resume().catch(() => undefined);
+          }
+        });
+      }
     }
-    // Browsers suspend the context until a user gesture; resume is cheap
-    // and a no-op if already running.
-    if (this.ctx.state === "suspended") {
+    // iOS reports "suspended" both before the first user gesture and right
+    // after a mic recording releases. Either way, resume is the same call;
+    // it is a no-op when the context is already running.
+    if (this.ctx.state !== "running") {
       try {
         await this.ctx.resume();
       } catch {
