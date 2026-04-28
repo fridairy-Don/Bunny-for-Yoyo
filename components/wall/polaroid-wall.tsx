@@ -10,7 +10,7 @@ import {
 } from "../../lib/memory/polaroid-store";
 import type { SessionCard } from "../../lib/memory/session-store";
 import { PolaroidCard } from "./polaroid-card";
-import { PolaroidDetail } from "./polaroid-detail";
+import { PolaroidGallery } from "./polaroid-gallery";
 
 type Props = {
   // Bumped whenever a save lands — the wall refetches.
@@ -40,8 +40,14 @@ export function PolaroidWall({
 }: Props) {
   const [polaroids, setPolaroids] = useState<Polaroid[]>([]);
   const [loading, setLoading] = useState(true);
-  const [openDate, setOpenDate] = useState<string | null>(null);
-  const [detailPolaroid, setDetailPolaroid] = useState<Polaroid | null>(null);
+  // Unified gallery state. `null` = closed. `items` is the slice we hand to
+  // the carousel (a whole date stack, or a single polaroid for the
+  // single-card case). `initialIndex` defaults to the freshest card —
+  // the user expects "tap top of stack" → that exact card focused.
+  const [gallery, setGallery] = useState<{
+    items: Polaroid[];
+    initialIndex: number;
+  } | null>(null);
 
   // Refetch polaroids whenever the save flow signals a change. We do not
   // poll — the in-flight optimistic placeholder covers the gap until
@@ -89,41 +95,29 @@ export function PolaroidWall({
     return () => window.clearTimeout(t);
   }, [freshlyAddedId, onClearFreshlyAdded]);
 
-  const fanOutItems = useMemo(() => {
-    if (!openDate) return [];
-    return stacks.find((s) => s.date === openDate)?.items ?? [];
-  }, [stacks, openDate]);
-
-  // Listen for outside clicks while a stack is fanned to collapse it,
-  // so a tap on bunny / wall background closes it gracefully.
-  //
-  // The listener is registered with a one-frame delay so the same touch
-  // gesture that OPENED the fan does not immediately close it. iOS in
-  // particular fires a synthetic pointerdown on the underlying element
-  // when a button's React onClick triggers a re-render that removes the
-  // original button mid-gesture — that synthetic event was landing on
-  // the wall background and instantly setting openDate back to null,
-  // making the fan look like it never opened.
   const wallRef = useRef<HTMLDivElement | null>(null);
+
+  // Keep the gallery's items in sync if the underlying polaroids change
+  // (e.g. a delete inside the gallery, or a new polaroid generation
+  // landing while the gallery is open). We re-derive from `merged` using
+  // each item's id so the gallery's swipe position stays valid.
   useEffect(() => {
-    if (!openDate) return;
-    let armed = false;
-    const arm = window.setTimeout(() => {
-      armed = true;
-    }, 0);
-    const onDoc = (e: MouseEvent) => {
-      if (!armed) return;
-      const root = wallRef.current;
-      if (!root) return;
-      if (e.target instanceof Node && root.contains(e.target)) return;
-      setOpenDate(null);
-    };
-    window.addEventListener("pointerdown", onDoc);
-    return () => {
-      window.clearTimeout(arm);
-      window.removeEventListener("pointerdown", onDoc);
-    };
-  }, [openDate]);
+    if (!gallery) return;
+    const ids = new Set(gallery.items.map((p) => p.id));
+    const refreshed = merged.filter((p) => ids.has(p.id));
+    // Bail if nothing changed by reference — avoids a render loop.
+    const sameLength = refreshed.length === gallery.items.length;
+    const sameRefs =
+      sameLength && refreshed.every((p, i) => p === gallery.items[i]);
+    if (sameRefs) return;
+    if (refreshed.length === 0) {
+      setGallery(null);
+      return;
+    }
+    setGallery((prev) =>
+      prev ? { items: refreshed, initialIndex: Math.min(prev.initialIndex, refreshed.length - 1) } : prev,
+    );
+  }, [merged, gallery]);
 
   function captionFor(polaroid: Polaroid): string {
     if (polaroid.status === "pending") return "developing…";
@@ -134,17 +128,6 @@ export function PolaroidWall({
     }
     return "a quiet talk we had.";
   }
-
-  // The fanned stack must NOT live inside `.wall` — `.wall` is
-  // `position: fixed; z-index: 4`, which establishes a stacking context
-  // that traps any descendant (no matter how high its own z-index)
-  // BELOW the wall-fan-backdrop (z=35) sibling. The visible symptom was
-  // the backdrop's `backdrop-filter: blur(8px)` blurring the fanned
-  // cards along with the bunny stage. We portal the entire fan overlay
-  // (backdrop + spread cards) to document.body so it lives in the root
-  // stacking context, where its z-index actually wins against the
-  // backdrop.
-  const fannedStack = openDate ? stacks.find((s) => s.date === openDate) ?? null : null;
 
   return (
     <>
@@ -161,156 +144,69 @@ export function PolaroidWall({
         ) : null}
 
         {stacks.map((stack) => {
-          const fanned = openDate === stack.date;
           const topItem = stack.items[0];
           const visibleStack = stack.items.slice(0, 3); // peek depth
 
-          // Hide the stack's wall-column thumbnails while it is fanned
-          // out — the portal renders the enlarged copy. We keep the
-          // empty `.wall-stack` div mounted so the wall column does not
-          // visually collapse and re-flow when the user opens the fan.
-          if (fanned) {
-            return (
-              <div
-                key={stack.date}
-                className="wall-stack fanned-placeholder"
-                aria-hidden="true"
-              />
-            );
-          }
-
           return (
-            <div
-              key={stack.date}
-              className="wall-stack"
-            >
-              {(
-                <>
-                  {visibleStack
-                    .slice()
-                    .reverse()
-                    .map((p, idxFromBottom) => {
-                      const stackIndex = visibleStack.length - 1 - idxFromBottom;
-                      const isTop = p.id === topItem.id;
-                      return (
-                        <PolaroidCard
-                          key={p.id}
-                          polaroid={p}
-                          caption={captionFor(p)}
-                          isTop={isTop}
-                          stackIndex={stackIndex}
-                          freshlyAdded={isTop && p.id === freshlyAddedId}
-                          onClick={() => {
-                            if (stack.items.length > 1) {
-                              setOpenDate(stack.date);
-                            } else {
-                              setDetailPolaroid(p);
-                            }
-                          }}
-                        />
-                      );
-                    })}
-                  {stack.items.length > 1 ? (
-                    <div className="wall-stack-badge" aria-hidden="true">
-                      +{stack.items.length - 1}
-                    </div>
-                  ) : null}
-                </>
-              )}
+            <div key={stack.date} className="wall-stack">
+              {visibleStack
+                .slice()
+                .reverse()
+                .map((p, idxFromBottom) => {
+                  const stackIndex = visibleStack.length - 1 - idxFromBottom;
+                  const isTop = p.id === topItem.id;
+                  return (
+                    <PolaroidCard
+                      key={p.id}
+                      polaroid={p}
+                      caption={captionFor(p)}
+                      isTop={isTop}
+                      stackIndex={stackIndex}
+                      freshlyAdded={isTop && p.id === freshlyAddedId}
+                      onClick={() => {
+                        // Open the gallery with the entire date stack —
+                        // 1-card stacks open straight in enlarged mode.
+                        // initialIndex 0 == the top (freshest) card,
+                        // matching the user's tap target.
+                        setGallery({ items: stack.items, initialIndex: 0 });
+                      }}
+                    />
+                  );
+                })}
+              {stack.items.length > 1 ? (
+                <div className="wall-stack-badge" aria-hidden="true">
+                  +{stack.items.length - 1}
+                </div>
+              ) : null}
             </div>
           );
         })}
       </div>
 
-      {/* Fan overlay — portaled to <body> so the backdrop's blur filter
-          does NOT bleed onto the fanned cards. (Inside .wall the fanned
-          stack would inherit .wall's z-index:4 stacking context and
-          render below the backdrop's blur, which is exactly what made
-          the cards look smeared in the iPad screenshot.) */}
-      {fannedStack && typeof document !== "undefined"
+      {/* Unified gallery: carousel → enlarged → flipped (transcript on
+          back). Portaled to <body> to escape `.wall`'s stacking context
+          so the backdrop's blur filter doesn't bleed onto the cards. */}
+      {gallery && typeof document !== "undefined"
         ? createPortal(
-            <div className="wall-fan-overlay" role="dialog" aria-modal="true">
-              <div
-                className="wall-fan-backdrop"
-                onClick={() => setOpenDate(null)}
-                aria-hidden="true"
-              />
-              <div className="wall-fan-stage">
-                <div className="wall-fan">
-                  {fannedStack.items.map((p, i) => {
-                    const count = fannedStack.items.length;
-                    const spacing = count <= 2 ? 150 : count <= 3 ? 130 : 110;
-                    const tilt = count <= 2 ? 3 : 4;
-                    const offset = (i - (count - 1) / 2) * spacing;
-                    const rot = (i - (count - 1) / 2) * tilt;
-                    return (
-                      <div
-                        key={p.id}
-                        className="wall-fan-item"
-                        style={{
-                          transform: `translate(calc(-50% + ${offset}px), -50%) rotate(${rot}deg)`,
-                        }}
-                      >
-                        <PolaroidCard
-                          polaroid={p}
-                          caption={captionFor(p)}
-                          isTop
-                          stackIndex={0}
-                          freshlyAdded={false}
-                          onClick={() => setDetailPolaroid(p)}
-                        />
-                      </div>
-                    );
-                  })}
-                  {fannedStack.items.length > 1 ? (
-                    <div className="wall-fan-count">
-                      {fannedStack.items.length} from this day
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            </div>,
+            <PolaroidGallery
+              items={gallery.items}
+              sessions={sessionsById}
+              initialIndex={gallery.initialIndex}
+              onClose={() => setGallery(null)}
+              onLikedChange={(id, liked) => {
+                setPolaroids((current) =>
+                  current.map((p) => (p.id === id ? { ...p, liked } : p)),
+                );
+              }}
+              onDeleted={(deletedId) => {
+                setPolaroids((current) =>
+                  current.filter((p) => p.id !== deletedId),
+                );
+              }}
+            />,
             document.body,
           )
         : null}
-
-      {detailPolaroid ? (
-        <PolaroidDetail
-          polaroid={detailPolaroid}
-          session={
-            detailPolaroid.sessionId
-              ? sessionsById.get(detailPolaroid.sessionId) ?? null
-              : null
-          }
-          onClose={() => setDetailPolaroid(null)}
-          onLikedChange={(liked) => {
-            setPolaroids((current) =>
-              current.map((p) =>
-                p.id === detailPolaroid.id ? { ...p, liked } : p,
-              ),
-            );
-            setDetailPolaroid((curr) => (curr ? { ...curr, liked } : curr));
-          }}
-          onDeleted={(deletedId) => {
-            // Drop the card from local state immediately so the wall
-            // doesn't flash a stale stack while a refetch is in flight.
-            // If this was the last polaroid in its date stack, also
-            // collapse any open fan for that date.
-            setPolaroids((current) => {
-              const next = current.filter((p) => p.id !== deletedId);
-              const removed = current.find((p) => p.id === deletedId);
-              if (
-                removed &&
-                openDate === removed.sessionDate &&
-                !next.some((p) => p.sessionDate === removed.sessionDate)
-              ) {
-                setOpenDate(null);
-              }
-              return next;
-            });
-          }}
-        />
-      ) : null}
     </>
   );
 }

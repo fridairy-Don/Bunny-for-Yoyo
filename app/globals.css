@@ -2641,6 +2641,7 @@ body.sleeping .wall {
   .wall-fan-backdrop,
   .wall-fan-overlay,
   .wall-detail-backdrop,
+  .pgallery,
   .corner,
   .drawer,
   .reset-banner {
@@ -2757,5 +2758,448 @@ body.sleeping .wall {
   .corner {
     bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
     right: calc(env(safe-area-inset-right, 0px) + 16px);
+  }
+}
+
+/* ===========================================================================
+   Polaroid Gallery — three-stage view that replaced the old fan-spread.
+   States are driven by a class on the root .pgallery element:
+     .pgallery-mode-carousel — side-by-side cards with arrows + dots
+     .pgallery-mode-enlarged — one card centred, others blurred behind
+     .pgallery-mode-flipped  — focused card rotated 180° to show transcript
+   The whole thing is portaled to <body> from PolaroidWall, so the backdrop
+   filter doesn't smear the cards (which is what kept happening when the
+   overlay lived inside .wall's stacking context).
+   =========================================================================== */
+.pgallery {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+}
+
+.pgallery-backdrop {
+  position: fixed;
+  inset: 0;
+  background: oklch(0.18 0.02 40 / 0.55);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  z-index: 1;
+  animation: pgallery-fade 0.22s ease-out;
+}
+@keyframes pgallery-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.pgallery-close {
+  position: fixed;
+  top: max(env(safe-area-inset-top, 0px), 16px);
+  right: max(env(safe-area-inset-right, 0px), 16px);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 0;
+  background: oklch(0.97 0.02 60 / 0.92);
+  color: oklch(0.22 0.04 30);
+  font-size: 24px;
+  font-weight: 300;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 60;
+  box-shadow: 0 6px 18px oklch(0 0 0 / 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ----- Carousel layer ---------------------------------------------------- */
+.pgallery-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  transition: filter 0.24s ease, opacity 0.24s ease;
+}
+.pgallery-stage > * { pointer-events: auto; }
+
+/* In enlarged / flipped modes the carousel slides into the background and
+   blurs so the focus layer reads as the foreground. */
+.pgallery-mode-enlarged .pgallery-stage,
+.pgallery-mode-flipped .pgallery-stage {
+  filter: blur(10px) saturate(0.85);
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.pgallery-track {
+  position: relative;
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  transition: transform 0.36s cubic-bezier(0.2, 0.9, 0.3, 1);
+  will-change: transform;
+  /* Let the browser pan vertically and let us handle horizontal swipes. */
+  touch-action: pan-y;
+}
+
+.pgallery-card {
+  flex: 0 0 auto;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.32s ease, opacity 0.32s ease;
+  transform: scale(0.86);
+  opacity: 0.72;
+}
+.pgallery-card.active {
+  transform: scale(1);
+  opacity: 1;
+}
+
+.pgallery-arrow {
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 0;
+  background: oklch(0.97 0.02 60 / 0.92);
+  color: oklch(0.22 0.04 30);
+  font-size: 28px;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 10;
+  box-shadow: 0 6px 18px oklch(0 0 0 / 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-bottom: 4px;
+}
+.pgallery-arrow:hover { background: oklch(0.99 0.01 60); }
+.pgallery-arrow-prev { left: max(env(safe-area-inset-left, 0px), 16px); }
+.pgallery-arrow-next { right: max(env(safe-area-inset-right, 0px), 16px); }
+.pgallery-mode-enlarged .pgallery-arrow,
+.pgallery-mode-flipped .pgallery-arrow { display: none; }
+
+.pgallery-dots {
+  position: fixed;
+  bottom: max(env(safe-area-inset-bottom, 0px), 24px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  z-index: 10;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: oklch(0.18 0.02 40 / 0.4);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+.pgallery-mode-enlarged .pgallery-dots,
+.pgallery-mode-flipped .pgallery-dots { display: none; }
+
+.pgallery-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 0;
+  background: oklch(0.96 0.02 60 / 0.55);
+  padding: 0;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+.pgallery-dot.active {
+  background: oklch(0.97 0.02 60 / 1);
+  transform: scale(1.5);
+}
+
+/* ----- Enlarged / flipped layer ----------------------------------------- */
+.pgallery-focus {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  perspective: 1400px;
+  /* Pinch-zoom is handled in JS via touch events. We disable browser
+     defaults so the gesture doesn't scroll/zoom the page itself. */
+  touch-action: none;
+  animation: pgallery-focus-in 0.24s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+@keyframes pgallery-focus-in {
+  from { opacity: 0; transform: scale(0.94); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.pgallery-flipper {
+  position: relative;
+  width: min(78vw, 480px);
+  /* Polaroid card is square photo + caption strip below — slightly taller
+     than wide. The aspect-ratio keeps the back face the same size. */
+  aspect-ratio: 0.84;
+  transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.pgallery-face {
+  position: absolute;
+  inset: 0;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  display: block;
+}
+.pgallery-face-front { transform: rotateY(0); }
+.pgallery-face-back {
+  transform: rotateY(180deg);
+  background: oklch(0.97 0.02 60);
+  border-radius: 12px;
+  padding: 22px;
+  box-shadow: 0 18px 48px oklch(0 0 0 / 0.22);
+  text-align: left;
+}
+
+.pgallery-back-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  overflow: hidden;
+}
+.pgallery-back-date {
+  font-family: var(--font-display, Georgia, serif);
+  font-size: 11px;
+  color: oklch(0.5 0.04 40);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.pgallery-back-summary {
+  font-size: 15px;
+  font-weight: 500;
+  color: oklch(0.25 0.04 30);
+  line-height: 1.45;
+  margin-bottom: 6px;
+  border-bottom: 1px dashed oklch(0.85 0.02 60);
+  padding-bottom: 10px;
+}
+.pgallery-back-transcript {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 2px;
+}
+.pgallery-line {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: oklch(0.22 0.04 30);
+}
+.pgallery-line .who {
+  font-size: 10px;
+  color: oklch(0.5 0.04 40);
+  margin-right: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.pgallery-line .what { display: inline; }
+.pgallery-line.user .who { color: oklch(0.5 0.12 25); }
+.pgallery-back-empty {
+  color: oklch(0.5 0.04 40);
+  font-size: 13px;
+  text-align: center;
+  padding: 24px 12px;
+  font-style: italic;
+}
+
+.pgallery-actions {
+  position: fixed;
+  bottom: max(env(safe-area-inset-bottom, 0px), 28px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  z-index: 30;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 90vw;
+}
+
+.pgallery-heart {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: oklch(0.97 0.02 60 / 0.92);
+  color: oklch(0.25 0.04 30);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+.pgallery-heart .heart-glyph { font-size: 14px; line-height: 1; }
+.pgallery-heart.on {
+  color: oklch(0.5 0.16 20);
+  background: oklch(0.96 0.04 30 / 0.95);
+}
+
+.pgallery-remove,
+.pgallery-remove-confirm {
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  background: oklch(0.97 0.02 60 / 0.85);
+  color: oklch(0.4 0.04 40);
+}
+.pgallery-remove-confirm {
+  background: oklch(0.55 0.18 25);
+  color: white;
+}
+
+/* ----- PhotoFrame (used inside both carousel cards and enlarged view) --- */
+.pgallery-frame {
+  position: relative;
+  background: white;
+  border-radius: 8px;
+  padding: 10px 10px 0;
+  box-shadow: 0 8px 22px oklch(0 0 0 / 0.18);
+  display: flex;
+  flex-direction: column;
+}
+.pgallery-frame.large {
+  width: 100%;
+  height: 100%;
+  padding: 14px 14px 0;
+  box-shadow: 0 28px 64px oklch(0 0 0 / 0.32);
+}
+.pgallery-frame-pin {
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  box-shadow:
+    0 2px 4px oklch(0 0 0 / 0.18),
+    inset 0 1px 1px oklch(1 0 0 / 0.4);
+}
+.pgallery-frame-photo {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  background: oklch(0.92 0.02 60);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.pgallery-frame-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.pgallery-frame-shine {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    115deg,
+    oklch(1 0 0 / 0) 35%,
+    oklch(1 0 0 / 0.18) 50%,
+    oklch(1 0 0 / 0) 65%
+  );
+  pointer-events: none;
+}
+.pgallery-frame-developing {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: oklch(0.95 0.02 60);
+  color: oklch(0.4 0.04 40);
+  font-size: 13px;
+}
+.pgallery-frame-developing-haze {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    160deg,
+    oklch(0.96 0.02 60) 0%,
+    oklch(0.9 0.03 60) 100%
+  );
+  animation: pgallery-haze 1.6s ease-in-out infinite alternate;
+}
+.pgallery-frame-developing-label {
+  position: relative;
+  z-index: 2;
+}
+@keyframes pgallery-haze {
+  from { opacity: 0.5; }
+  to   { opacity: 1; }
+}
+.pgallery-frame-failed {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: oklch(0.5 0.04 40);
+  font-size: 12px;
+  background: oklch(0.95 0.02 60);
+  padding: 12px;
+  text-align: center;
+}
+.pgallery-frame-caption {
+  padding: 10px 6px 14px;
+}
+.pgallery-frame-date {
+  font-family: var(--font-display, Georgia, serif);
+  font-size: 11px;
+  color: oklch(0.5 0.04 40);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+}
+.pgallery-frame-text {
+  font-size: 13px;
+  color: oklch(0.25 0.04 30);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.pgallery-frame.large .pgallery-frame-text {
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+}
+
+/* iPhone / small phone tweaks */
+@media (max-width: 600px) {
+  .pgallery-flipper {
+    width: min(86vw, 360px);
+  }
+  .pgallery-arrow {
+    width: 40px;
+    height: 40px;
+    font-size: 24px;
   }
 }
