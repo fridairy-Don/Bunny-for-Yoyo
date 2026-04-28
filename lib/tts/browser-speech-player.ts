@@ -2,8 +2,19 @@
 
 import type { TtsPlaybackResult } from "../types/conversation";
 
+export type WordTiming = {
+  word: string;
+  startMs: number;
+  endMs: number;
+};
+
+export type SpeakOptions = {
+  onWordChange?: (wordIndex: number) => void;
+  onProgress?: (elapsedMs: number, totalMs: number) => void;
+};
+
 export type SpeechPlayer = {
-  speak: (text: string) => Promise<TtsPlaybackResult>;
+  speak: (text: string, options?: SpeakOptions) => Promise<TtsPlaybackResult>;
   stop: () => void;
   estimateDurationMs: (text: string) => number;
 };
@@ -24,11 +35,12 @@ class BrowserSpeechPlayer implements SpeechPlayer {
     this.activeUtterance = null;
   }
 
-  async speak(text: string): Promise<TtsPlaybackResult> {
+  async speak(text: string, options: SpeakOptions = {}): Promise<TtsPlaybackResult> {
     const durationMs = this.estimateDurationMs(text);
 
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      await new Promise((resolve) => setTimeout(resolve, durationMs));
+      // simulate word progression even in the no-audio fallback
+      await runFakeWordProgression(text, durationMs, options);
       return { durationMs };
     }
 
@@ -62,8 +74,24 @@ class BrowserSpeechPlayer implements SpeechPlayer {
         resolve({ durationMs });
       };
 
+      void runFakeWordProgression(text, durationMs, options);
       window.speechSynthesis.speak(utterance);
     });
+  }
+}
+
+export async function runFakeWordProgression(
+  text: string,
+  durationMs: number,
+  options: SpeakOptions,
+) {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (!words.length || !options.onWordChange) return;
+  const step = durationMs / words.length;
+  for (let i = 0; i < words.length; i++) {
+    options.onWordChange(i);
+    // Let progression proceed, don't block the speak() resolve
+    await new Promise((r) => setTimeout(r, step));
   }
 }
 

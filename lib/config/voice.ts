@@ -5,7 +5,7 @@ export const BUNNY_TTS_SETTINGS = {
   similarity_boost: 0.75,
   use_speaker_boost: true,
   style: 0.48,
-  speed: 0.9,
+  speed: 0.85,
 } as const;
 
 export const BUNNY_VOICE_PROFILE = {

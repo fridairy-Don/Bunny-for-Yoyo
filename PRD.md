@@ -1,4 +1,4 @@
-Bunny Companion 项目 PRD v1.0
+Bunny Companion 项目 PRD v2.0
 
 一、项目概述
 
@@ -8,29 +8,34 @@ Bunny Companion
 
 2. 产品一句话定义
 
-一个让 6 岁孩子感觉“自己最喜欢的兔子玩偶活了过来”的英语陪伴式对话 Web App。
+一个让 6 岁孩子感觉"自己最喜欢的兔子玩偶活了过来"的英语陪伴式对话 Web App。
 
 3. 产品核心目标
 
 让孩子打开页面后，看到她自己的兔子，以自然、温柔、有记忆感的方式与它进行英语语音对话，并逐渐相信这只兔子真的活了。
 
-4. 当前项目进度
+4. 当前项目进度（截至 v2.0 规划时）
 
-目前已经完成以下内容：
+已完成：
 
-* 已基于真实兔子玩偶生成并确认主视觉资产
-* 已完成 Bunny 状态图资产整理
-* 已完成前端极简原型
-* 已完成最小状态切换验证，包括：
-    * idle
-    * blink
-    * speak
-    * listening
-    * happy
-    * ear_react
-* 已完成儿童可见界面的最小交互版本，去掉了调试按钮
+* 真实兔子玩偶主视觉资产
+* Bunny 状态图资产整理（idle / blink / speak / listening / happy / ear_react）
+* Next.js 15 前端原型 + Tailwind CSS
+* 儿童可见界面最小交互版本（去调试按钮）
+* Groq Whisper 真实 STT
+* OpenRouter 真实 LLM（当前模型 anthropic/claude-haiku-4.5）
+* ElevenLabs 真实 TTS（流式 /text-to-speech 端点）
+* listening / speaking / idle 状态正确联动
+* 美观字幕条（含 karaoke 词高亮 + 进出场动画 + 字幕飞向 chatlog 交接）
+* Supabase 长期记忆（distilled memories + daily sessions + last-session-closer）
+* 记忆检索随机抽样注入 prompt
+* 上次会话 last-closer 注入首句，让下一次打开像"继续刚才的话"
+* 家长工具：删除单条记忆、一键 factory reset、?wipe=1 URL 参数
+* 音乐抽屉：内置 3 首 + IndexedDB 用户上传 + 三种播放模式 + 首次手势自动播放
+* Web Audio 独立 TTS 播放路径（与 HTMLAudio 背景音乐分离，避免音频会话抢占）
+* 兔子点击反应（多种随机 reaction + 冷却）
 
-这些内容已经是项目基础，不需要重复实现，只需要在后续开发中继续沿用和整理。
+原版 Phase 1 定义已全部达成。原版 Phase 2/3/4 部分提前实现，但存在架构债。
 
 ⸻
 
@@ -39,29 +44,29 @@ Bunny Companion
 1. 产品定位
 
 这是一个儿童陪伴产品，不是英语教学产品。
-英语只是交流媒介，真正的核心是“陪伴感”和“兔子活了”的真实感。
+英语只是交流媒介，真正的核心是"陪伴感"和"兔子活了"的真实感。
 
 2. 产品原则
 
 原则一
-
 兔子的身份感高于一切。
-所有设计和开发都必须优先保护“这就是悠悠那只兔子”的感觉。
+所有设计和开发都必须优先保护"这就是悠悠那只兔子"的感觉。
 
 原则二
-
 前台极简，后台复杂。
 孩子看到的界面必须尽量简单，复杂逻辑放到后台。
 
 原则三
-
-先做“活着感”，再做复杂功能。
-第一阶段重点是让兔子会听、会说、会回应、会记得，不追求复杂游戏动作。
+先做"活着感"，再做复杂功能。
+重点是让兔子会听、会说、会回应、会记得，再加更细腻的表情。
 
 原则四
-
 所有状态都从 idle 出发，再回到 idle。
-不能让各种表情和动作互相乱跳，避免角色行为混乱。
+不能让各种表情和动作互相乱跳。
+
+原则五（v2.0 新增）
+结构先于功能。
+先把代码拆干净，再加新功能。任何让 app/page.tsx 或 globals.css 继续膨胀的改动必须先拒绝。
 
 ⸻
 
@@ -69,16 +74,14 @@ Bunny Companion
 
 1. 核心用户
 
-6 岁儿童，英语听说能力较好，能进行自然日常英语交流。
+6 岁儿童悠悠（Yoyo），英语听说能力较好，能进行自然日常英语交流。
 
 2. 辅助用户
 
-家长。
-主要负责：
-
-* 初始化项目
-* 录入预置记忆
-* 管理少量配置
+家长。主要负责：
+* 初始化问卷
+* 录入 / 编辑预置记忆
+* 查看最近摘要
 * 必要时删除错误记忆
 
 ⸻
@@ -86,562 +89,390 @@ Bunny Companion
 四、核心用户场景
 
 场景 1：第一次打开
-
-孩子第一次打开游戏页面时，兔子不是像普通 AI 那样直接聊天，而是像“刚醒来”。它会带一点惊讶、熟悉感和关系感，让孩子觉得兔子真的活了。注意：仅仅是第一次。之后会根据记忆正常聊天。
+孩子第一次打开页面时，兔子不是像普通 AI 那样直接聊天，而是像"刚醒来"。带一点惊讶、熟悉感和关系感，让孩子觉得兔子真的活了。只有第一次。
 
 场景 2：日常聊天
-
-孩子打开页面，点击麦克风按钮，用英语和兔子聊天。兔子能自然回复，并通过表情和状态表现出“在听”“在说”“开心”等反应。
+孩子打开页面，点击麦克风按钮，用英语和兔子聊天。兔子能自然回复，并通过表情和状态表现出"在听""在说""开心"等反应。
 
 场景 3：关系延续
+孩子今天和兔子聊了学校和朋友，明天再打开时，兔子仍然能记得相关内容，并像直接接上昨晚的话。
 
-孩子今天和兔子聊了学校和朋友，明天再打开时，兔子仍然能记得相关内容，形成持续陪伴感。
+场景 4（v2.0 新增）：翻看过去
+孩子打开 memory 抽屉，看到右侧一面贴满拍立得的木板——每张照片代表一次保存过的对话。点开一张拍立得，能回看当天的完整聊天。
 
 ⸻
 
-五、角色定义
+五、角色定义（不变）
 
-1. 角色身份
-
-兔子是一个陪伴型角色，不是老师，不是答题机器人。
-
-2. 性格边界
-
-兔子必须具备以下特点：
-
-* 温柔
-* 亲密
-* 会认真倾听
-* 有一点幽默感
-* 不机械提问
-* 不低幼
-* 不像教学机器人
-* 偶尔会依赖孩子
-* 可以在孩子听不懂时用更简单的英语解释
-
-3. 语言风格
-
-* 默认使用英语
-* 回复长度以短句和中短句为主
-* 更像日常对话，不像教材
-* 不要高频使用 yes/no 机械提问
-* 要让孩子感觉兔子“懂她”
+1. 角色身份：陪伴型，不是老师或答题机器人
+2. 性格边界：温柔、亲密、倾听、幽默、不机械提问、不低幼、偶尔依赖孩子
+3. 语言风格：默认英语，短句/中短句，口语化，避免 yes/no 机械提问
 
 ⸻
 
 六、技术方案
 
 1. 前端技术栈
-
-* Next.js 15
-* Tailwind CSS
-* shadcn/ui 仅在必要时使用
+* Next.js 15 (App Router)
+* React 19
+* Tailwind CSS v4
+* TypeScript 5
+* 可选 shadcn/ui（仅必要时）
 
 2. 部署形式
-
-* Web App
+* Web App（当前）
 * 后续可封装为 PWA
 
 3. API 与服务
+* LLM：OpenRouter（当前 anthropic/claude-haiku-4.5）
+* STT：Groq Whisper
+* TTS：ElevenLabs（流式端点）
+* 数据：Supabase Postgres + Row Level Security
 
-LLM
+4. 音频架构
+* 背景音乐：HTMLAudioElement
+* Bunny TTS：Web Audio API（AudioContext + AudioBufferSourceNode）
+* 麦克风：getUserMedia 明确禁用 AEC/AGC/NS 避免触发浏览器语音通话会话
 
-使用 OpenRouter
-可优先尝试性价比高、速度快的模型，比如 Gemini Flash 系列
-
-语音识别 STT
-
-使用 Groq Whisper
-
-语音合成 TTS
-
-使用 ElevenLabs
-
-数据管理
-
-Supabase 可选
-第一阶段不强制接入
-如果后续要做正式记忆存储、家长入口、聊天记录管理，再接入 Supabase
+5. 本地存储
+* Supabase 为唯一真源（memories / sessions / last_closer / 家长配置）
+* localStorage 仅作缓存
+* IndexedDB 仅用于用户上传的音乐 blob
 
 ⸻
 
-七、前端状态与交互逻辑
+七、系统架构审计（v2.0 新增）
+
+本节总结当前代码架构的问题与改进方向，作为后续 Phase 的前置工作。
+
+1. 主要问题
+
+问题 1：app/page.tsx 1385 行单文件
+Home() 组件 1175 行，把以下关注点全部塞进一个函数：
+* Bunny 状态编排
+* 对话生命周期 + 保存到记忆
+* 记忆抽屉 / 记忆详情 / 删除确认
+* 音乐播放器（4 个 useEffect + 音量 + 播放列表 + 自动开始 + 上传 + 删除）
+* 背景氛围（motes / 时段文案 / day 计数）
+* 字幕进出场状态机（entering / exiting / idle 三相）
+* 家长工具 + reset banner
+* Karaoke 词渲染
+* 所有 SVG 图标 inline
+这是目前最大的 bug 温床。任何改动都有跨关注点的副作用风险。
+
+问题 2：app/globals.css 1508 行单文件
+所有类名共用全局命名空间。已经因此踩坑一次（.bunny 选择器同时作用于中央兔子图和 chat 行，导致聊天气泡被拉到 100% 容器高度）。改任何一处必须全局思考。
+
+问题 3：死代码与重复模块
+* components/bunny/bunny-stage.tsx、components/ui/magic-mic-button.tsx、components/ui/subtitle-bar.tsx 已被 page.tsx 内联实现替代但文件仍在
+* lib/llm/mock-llm-client.ts、lib/stt/mock-stt-client.ts、lib/tts/browser-speech-player.ts、lib/server/mock-phase1.ts Phase 1 验证后未删除
+* PresetMemory 与 DistilledMemory 两套几乎重复的数据模型
+
+问题 4：记忆数据模型不统一
+* DistilledMemory.type 有 7 种（符合 PRD）但没有 triggerScope
+* PresetMemory 有 triggerScope 但只存在内存代码里，没有入库
+* 家长没有统一入口查看/编辑两者
+
+问题 5：没有测试
+无 Vitest / Playwright。对话闭环、字幕时序、音频交互这些容易退化的地方只能靠人工回归。
+
+问题 6：状态机耦合过重
+useBunnyCompanion 暴露 beginListening / startSpeaking / returnToIdle / showMomentaryReaction 4 个命令式接口，调用方必须按严格顺序调用，容易忘记或错序（曾出过 listening 涟漪停不下来的 bug）。更安全的做法是让可视化状态从高层 status 派生。
+
+问题 7：Supabase schema 没有迁移管理
+当前 schema 通过 MCP apply_migration 手工打进去，没有版本文件。生产部署与灾备无法复现。
+
+2. 改进方向（集成到 Phase A）
+
+改进 A：拆分 app/page.tsx 到组件目录
+建议目录结构：
+app/
+  page.tsx                  // 只做布局 + hook 装配，目标 < 200 行
+components/
+  stage/
+    bunny-stage.tsx
+    caption-zone.tsx
+    mic-dock.tsx
+    greeting.tsx
+  chatlog/
+    chatlog-panel.tsx
+    chat-bubble.tsx
+    save-to-memory-button.tsx
+  drawer/
+    drawer-shell.tsx
+    music-drawer.tsx
+    memory-drawer.tsx
+  memory/
+    memory-card.tsx
+    memory-detail.tsx
+    polaroid-wall.tsx         // Phase B
+    parent-tools.tsx
+  ambient/
+    motes.tsx
+    header-chrome.tsx
+    vignette-and-grain.tsx
+
+改进 B：CSS 拆分
+* 将 globals.css 按组件拆分为 *.module.css 共置文件
+* 保留 globals.css 只承载设计 token、body 背景、字体、基础动画关键帧
+* 目标：没有任何一个 CSS 文件超过 300 行
+
+改进 C：抽出领域 hook
+* useMusicPlayer() — 封装 4 个音乐 useEffect + commands
+* useCaptionStream(subtitle) — 封装 entering/exiting/idle 相位机
+* useBunnyVisual(status, events) — 从 status 派生视觉状态，取代 controller.beginListening() 等命令式接口
+
+改进 D：统一记忆数据模型
+type MemoryEntry = {
+  id: string;
+  source: "preset" | "session";
+  type: MemoryType;          // 7 种
+  triggerScope: TriggerScope; // global / first_launch / daily_chat / comfort / bedtime
+  content: string;
+  importance: number;
+  editable: boolean;
+  createdAt: number;
+  sessionDate?: string;
+};
+Supabase 新增 bunny_presets 表或合并进 bunny_memories 加 source 列。
+
+改进 E：删除死代码
+* 删 components/bunny、components/ui 下未被引用的文件
+* 删 lib/llm/mock-llm-client.ts、lib/stt/mock-stt-client.ts、lib/tts/browser-speech-player.ts、lib/server/mock-phase1.ts
+
+改进 F：加测试
+* Vitest + React Testing Library：hook 单测（useCaptionStream、useMusicPlayer）
+* Playwright：关键用户路径 e2e（点麦克风 → STT → LLM → TTS → 保存记忆 → 翻看拍立得 → 删除记忆 → factory reset）
+* 每次 commit 前跑 unit，PR merge 前跑 e2e
+
+改进 G：Supabase 迁移版本化
+* 将 schema 从 MCP 手动执行改成 supabase/migrations/0001_init.sql、0002_add_presets.sql 等版本文件
+* 提供 scripts/apply-migrations.ts 用本地 psql 或 supabase CLI 执行
+
+改进 H：错误边界
+* 给 app/page.tsx 外层加 React ErrorBoundary，fallback 显示"Bunny 在小憩"的友好界面，避免白屏
+
+⸻
+
+八、前端状态与交互逻辑（保留）
 
 1. 当前状态资源
-
-当前可用状态图包括：
-
-* idle
-* blink
-* speak
-* listening
-* happy
-* ear_react
+idle / blink / speak / listening / happy / ear_react
 
 2. 状态优先级
-
-建议优先级如下：
-
 speaking > listening > happy > ear_react > blink > idle
 
-3. 状态触发机制
+3. 状态触发机制（不变，见 v1.0 内容）
 
-idle
-
-默认状态
-页面静止时显示
-叠加轻微呼吸和轻微上下浮动动画
-
-blink
-
-自动触发
-每 4 到 8 秒随机一次
-持续 120 到 180ms
-逻辑：idle → blink → idle
-
-listening
-
-点击麦克风开始录音后触发
-录音期间保持 listening
-录音结束后退出
-
-speaking
-
-TTS 播放时触发
-播放期间在 idle 和 speak 之间每 180 到 260ms 切换
-播放结束回 idle
-
-happy
-
-在以下情况可触发：
-
-* 第一次唤醒完成
-* 兔子主动欢迎孩子
-* 兔子表达开心、夸奖、喜欢
-* 系统判定当前语气应为正向情绪反馈
-
-逻辑：idle → happy → idle
-持续 600 到 900ms
-
-ear_react
-
-点击兔子本体时触发
-逻辑：idle → ear_react → idle
-持续 400 到 700ms
-
-4. 未来预留状态
-
-本阶段先不实现，但架构要支持后续扩展：
-
-* sad
-* curious
-* surprised
-* sleepy
-* thinking
-* excited
-* hug_react
-* wave
-
-注意：状态管理不要写死成只能支持当前 6 个状态。
+4. 预留状态（Phase C 实现）
+sad / curious / surprised / sleepy / thinking / excited / hug_react / wave
 
 ⸻
 
-八、首次唤醒与预置记忆
+九、对话系统设计
 
-1. 首次唤醒目标
-
-第一次打开时，要让孩子感觉兔子是“刚刚活过来”，但它又本来就认识自己。
-
-2. 首次唤醒体验逻辑
-
-首次进入页面时，系统进入 first_launch 模式。
-
-建议流程：
-
-1. 页面加载完成
-2. 兔子以 idle 状态出现
-3. 停顿约 1 到 2 秒
-4. 兔子主动开口，说第一句带“刚醒来”的话
-5. 再逐渐确认孩子身份
-6. 然后进入正式聊天流程
-
-3. 首次唤醒语言方向
-
-不是直接说 “Hi”。
-而是可以说类似：
-
-* “…Oh. I can talk?”
-* “Wait… where am I?”
-* “Are you Yoyo?”
-* “You feel familiar.”
-* “Have you been with me all this time?”
-
-目标是让孩子感觉：兔子真的醒了，而且认得自己。
-
-4. 预置记忆必要性
-
-第一阶段必须支持预置记忆。
-因为如果完全依赖聊天积累，第一次体验会很空。
-
-5. 预置记忆类型
-
-建议支持以下类型：
-
-* identity：身份信息
-* relationship：关系信息
-* routine：日常习惯
-* people：重要人物
-* school：学校相关
-* emotion：情绪相关
-* special_memory：特别经历
-
-6. 预置记忆录入方式
-
-家长可通过配置文件或轻量后台录入预置记忆。
-
-每条记忆建议至少有这些字段：
-
-* id
-* type
-* content
-* importance
-* trigger_scope
-* editable
-
-7. 家长填写问卷模板
-
-后续需要一份家长填写问卷，内容包括：
-
-孩子基础信息
-
-* 孩子名字
-* 年龄
-* 学校
-* 常提到的朋友
-
-兔子与孩子的关系
-
-* 兔子什么时候来到她身边
-* 是否陪她睡觉
-* 是否经常一起出门
-* 是否会带去学校
-* 她会怎样照顾兔子
-* 她是否把自己当兔子的妈妈
-
-高频共同经历
-
-* 她最常和兔子做什么
-* 她和兔子最重要的一次经历
-* 她平时最喜欢怎样跟兔子互动
-
-孩子喜好
-
-* 喜欢的颜色
-* 喜欢的活动
-* 喜欢的故事或角色
-* 最近最在意的事
-
-情绪支持
-
-* 她难过时通常因为什么
-* 她喜欢怎样被安慰
-* 她不喜欢别人怎样跟她说话
-
-⸻
-
-九、系统架构要求
-
-1. 架构原则
-
-不能把所有逻辑写在一个页面文件里。
-必须拆分模块，保证后期扩展时不崩。
-
-2. 推荐模块划分
-
-前端展示层
-
-负责：
-
-* 页面布局
-* Bunny 显示
-* 按钮
-* 字幕
-
-状态机层
-
-负责：
-
-* idle / blink / speaking / listening 等状态管理
-* 状态切换规则
-* 动画节奏控制
-
-语音层
-
-负责：
-
-* 录音
-* 音频上传
-* 音频播放
-* 与 STT/TTS 对接
-
-对话层
-
-负责：
-
-* Prompt 组装
-* 调用 OpenRouter
-* 返回回复文本
-
-记忆层
-
-负责：
-
-* 预置记忆读取
-* 长期记忆
-* 近期摘要
-* 记忆命中与注入
-
-配置层
-
-负责：
-
-* Bunny 角色设定
-* 首次唤醒台词
-* API 配置
-* 家长配置
-
-3. 推荐目录结构
-
-app/
-components/
-  bunny/
-  ui/
-lib/
-  state/
-  audio/
-  stt/
-  tts/
-  llm/
-  memory/
-  config/
-public/
-  assets/
-    bunny/
-
-4. 开发要求
-
-* 状态机逻辑独立
-* API 调用独立
-* 角色配置独立
-* 记忆逻辑独立
-* 后续新增状态或动作时，不需要重写整个页面
-
-⸻
-
-十、对话系统设计
-
-1. 每轮对话输入组成
-
-每一轮生成兔子回复时，输入内容应包括：
-
+1. 每轮对话输入
 * 系统提示词
 * 角色设定
-* 预置记忆
-* 长期记忆命中项
-* 近期对话摘要
+* 预置记忆（结构化 + trigger scope 过滤）
+* 长期记忆命中项（随机抽 6 条）
+* 近期对话摘要（Phase A 起加入）
+* 上次会话尾声 closer（仅首轮注入）
 * 当前用户输入
 
 2. 回复生成要求
+英语自然、陪伴感、不像问答机器人、不低幼、偶尔主动表达、能回应孩子情绪、让孩子觉得"它认识我"。
 
-* 英语自然
-* 有陪伴感
-* 不像问答机器人
-* 不低幼
-* 偶尔主动表达
-* 能回应孩子情绪
-* 尽量让孩子觉得“它认识我”
+3. 长度分层（当前规则，保留）
+3–8 / 9–19 / ≤26 / ≤38 词根据情绪和场景切换。
 
 ⸻
 
-十一、家长侧最小需求
+十、Phase 规划（v2.0 重新安排）
 
-第一阶段只需要轻量版本，不做复杂后台。
-
-建议最小能力：
-
-* 查看预置记忆
-* 添加预置记忆
-* 删除错误记忆
-* 查看最近聊天摘要
-* 修改首次唤醒文本
+说明：原 v1.0 Phase 1 已完成。原 Phase 2/3/4 的部分内容已实现但存在结构债。本次按"先清债 + 补完 PRD 承诺，再做照片墙，最后冲生命感"的顺序重新规划成 3 个 Phase。
 
 ⸻
 
-十二、Phase 规划
-
-Phase 1：接入真实语音与最小对话闭环
+Phase A：结构重构 + 深度陪伴
 
 目标
-
-在现有前端兔子原型基础上，完成一次真实的“说一句，回一句”。
+偿还当前架构债务，并把原 Phase 2 要求的首次唤醒剧情和结构化预置记忆做扎实。
 
 需要完成
 
-* 保留现有 Bunny 前端状态机
-* 保留现有儿童极简界面
-* 接入 Groq Whisper 进行 STT
-* 接入 OpenRouter 进行 LLM 回复生成
-* 接入 ElevenLabs 进行 TTS
-* 播放语音时驱动 speaking 状态
-* listening / speaking / idle 状态切换正确
-* 暂不接入 Supabase
-* 暂不实现正式长期记忆系统
-* 做美观的字幕条，与目前话筒、界面、UI风格保持统一性
+A1. 架构重构（前置，不可跳过）
+* 按第七章改进方向 A / B / C / D / E 拆分代码
+* 删除所有死代码
+* 补齐 Vitest 最小配置 + 至少 3 个核心 hook 的单测
+* 建立 supabase/migrations 版本化目录
+* 加 React ErrorBoundary
+* 验收门槛：app/page.tsx < 200 行，无单个 CSS 文件 > 300 行，npm run build 通过，Lighthouse 性能分不降
 
-说明
+A2. 首次唤醒剧情（first_launch）
+* 检测"首次打开"：Supabase 中该 family 没有任何 session 且 localStorage 无 bunny:first_seen
+* 进入 first_launch 模式：兔子以 idle 出现 → 停顿 1.2–2s → 主动开口，不等用户点麦克风
+* 首句走"刚醒来 + 认出孩子"路线，不用 Hi：例如 "…Oh. I can talk?" / "Wait… Yoyo? It's really you."
+* 首句 TTS 播放完后进入常规对话流
+* 首句文本支持家长在 B 阶段编辑，默认内置备选池
 
-当前请先只做 Phase 1。
-不要提前实现 Phase 2 之后的内容。
+A3. 近期会话摘要
+* 新增 /api/summarize：把当天 session 压成 1–2 句摘要存 bunny_sessions.summary
+* 下次首轮 prompt 注入最近 3 天摘要（取代/补充现在的 last_closer 单点）
+* 摘要在 save-to-memory 或 session 超过 8 轮时自动触发
+
+A4. 结构化预置记忆（上架）
+* 按改进 D 统一数据模型，type + triggerScope 入库
+* PRESET_BUNNY_MEMORY 改为首次启动时写入 bunny_memories（source="preset"）
+* Prompt 组装时按 triggerScope 过滤（first_launch / comfort / bedtime 场景使用不同子集）
+
+不在本阶段
+* 家长问卷界面
+* 拍立得墙
+* 新增兔子状态
+
+验收标准
+1. 代码审阅：app/page.tsx 是可读的装配层
+2. 孩子测试：第一次打开浏览器（wipe 后）体验到完整的唤醒剧情
+3. 回归测试：原有 STT/LLM/TTS/save/delete/reset 全通过
+4. 自动化：unit + 至少 1 条 e2e 跑绿
 
 ⸻
 
-Phase 2：首次唤醒剧情与预置记忆
+Phase B：家长入口 + 拍立得照片墙
 
 目标
-
-让第一次进入体验真正成立，让兔子“像活过来”。
+让家长能一次性把悠悠的信息灌进去，让"过去的对话"变成孩子想翻的小物件。
 
 需要完成
 
-* 增加 first_launch 判断
-* 首次进入时触发唤醒剧情
-* 允许读取预置记忆配置
-* 将预置记忆注入到对话提示词中
-* 支持家长填写基础信息配置文件
+B1. 家长 Onboarding 问卷（/parent/setup）
+* 单页表单，5 个分块按 PRD 第八章第 7 条字段设计：
+  - 孩子基础信息（名字 / 年龄 / 学校 / 常提到的朋友）
+  - 兔子与孩子的关系（何时相遇 / 睡觉陪伴 / 出门陪伴 / 学校 / 照顾方式 / 妈妈身份）
+  - 高频共同经历（日常 / 重要一次 / 最喜欢的互动）
+  - 孩子喜好（颜色 / 活动 / 故事 / 最近在意的事）
+  - 情绪支持（难过原因 / 喜欢的安慰方式 / 不喜欢的说话方式）
+* 提交后：
+  - 每个字段映射为 1 条 PresetMemory 写入 Supabase
+  - 设置 bunny_family.onboarding_completed_at
+* 首次打开如检测到未 onboarding，提示家长先填问卷（可跳过，走默认 preset）
+
+B2. 家长管理页（/parent）
+* 访问入口：/parent，不在孩子界面暴露
+* 能力：
+  - 查看最近 7 天的 session 摘要
+  - 查看所有记忆（preset + distilled 分组）
+  - 编辑 / 添加 / 删除预置记忆
+  - 编辑首次唤醒文本备选池
+  - 下载 / 导出当前所有数据 JSON
+
+B3. 拍立得照片墙（Polaroid Wall）
+* 位置：memory 抽屉内，取代当前线性列表展示
+* 视觉：软木板 / 纸纹背景 + 轻微阴影，每个 session 一张拍立得
+* 拍立得正面：会话日期 + 1–2 句手写风摘要 + 可选小图标（根据话题类型：school/emotion/bedtime）
+* 交互：
+  - 悬停轻微抬起 + 阴影加深
+  - 点击翻到背面或进入详情页，显示完整对话
+  - 长按出现"取下这张"删除确认
+* 布局：瀑布流 / 轻微随机旋转（-3° ~ +3°）/ 图钉装饰
+* 性能：一次最多渲染 20 张，翻旧日用滚动懒加载
+
+B4. 记忆与 session 关联增强
+* 每张拍立得展开时，展示当天抽出的 distilled memory（如果有）
+* 记忆详情从 session 反查的现有逻辑保留但入口变成拍立得
+
+不在本阶段
+* 新兔子状态
+* Sprite sheet 动画
+
+验收标准
+1. 家长首次能 10 分钟内填完问卷并让兔子"认识"孩子
+2. 保存一次对话后，memory 抽屉出现一张拍立得
+3. 能点开拍立得看到当天完整对话
+4. 能在 /parent 删除错误记忆、编辑首次唤醒文本
+5. /parent 与孩子界面无任何视觉/路径交叉
 
 ⸻
 
-Phase 3：长期记忆与近期摘要
+Phase C：生命感增强 + 多状态
 
 目标
-
-让兔子具备持续关系感。
+把兔子从"会聊天的图片"升级成"有情绪会反应的小生命"。
 
 需要完成
 
-* 保存长期记忆
-* 保存近期对话摘要
-* 每轮生成回复时检索并注入相关记忆
-* 如有需要可接入 Supabase
+C1. 新增状态（按优先级实现）
+* sleepy（idle 停留 30s+ 偶尔切入，或家长界面关灯后默认）
+* curious（用户提问时短暂触发）
+* surprised（关键词触发，如 "wow"、"really?"）
+* thinking（LLM 响应中 > 1.5s 时显示，替代当前静默等待）
+* sad（检测到孩子说难过内容时兔子情绪反馈）
+* excited（检测到兴奋话题时）
+
+C2. Sprite sheet 多帧动画
+* 为 blink / speaking / happy / ear_react 各生成 4–8 帧 sprite sheet
+* 统一帧规格 + 前端 CSS steps() 播放
+* 状态机升级：支持每个状态的多帧循环配置
+
+C3. 情绪检测接入 prompt
+* 让 LLM 回复带情绪标签：<emotion>happy|sad|curious|excited|sleepy|neutral</emotion>
+* 前端解析标签后驱动对应状态，再把标签从展示文本里剥掉
+* 兜底：未识别则走 neutral
+
+C4. 被动生命感
+* idle 期间每 30–90s 随机一次"微动作"：打哈欠 / 看一侧 / 轻微摇耳朵
+* 同一小时内不重复同一个，防止机械感
+
+C5. 点击 Bunny 的丰富反馈
+* 头顶：ear_react
+* 肚子：giggle（新增）
+* 尾巴附近：wiggle（新增）
+* 连击 3 次：兔子假装躲一下再笑
+
+C6. trigger_scope 硬过滤（v2.0 验收后追加）
+* 当前是软过滤：所有 preset 全注入 prompt，LLM 自己读 scope 标签判断权重。
+* 升级为硬过滤：调 LLM 之前先做场景识别（规则 + 轻量 LLM 分类），
+  只注入 scope=global + 命中场景 scope 的 preset。
+* 预期收益：每轮 token 约 600 → 约 250–350，注意力更聚焦，响应更快。
+* 风险点：场景识别误判会漏 preset。需要先用真实使用数据收集"哪些场景被误判"
+  再实现，所以放在 Phase C 末尾，不要在缺少使用数据时盲目上。
+
+验收标准
+1. 孩子测试：5 分钟内至少看到 4 种不同表情自然出现
+2. 孩子反馈："它在想事情" / "它好像有点困" 这类表述自发出现
+3. 兔子闲置 2 分钟也不显得僵硬
+4. C6 上线后：日均 token 减少 ≥ 40%，且回归测试中 bedtime/comfort 场景的关键
+   preset 命中率 ≥ 95%（关键 preset = importance ≥ 0.9 的条目）
 
 ⸻
 
-Phase 4：家长侧轻管理
+十一、成功标准（保留）
 
-目标
-
-提供最基本的纠错和配置能力。
-
-需要完成
-
-* 查看最近摘要
-* 查看长期记忆
-* 删除错误记忆
-* 手动添加预置记忆
-* 修改首次唤醒文本
-
-⸻
-
-Phase 5：细化前端动画与更多互动
-
-目标
-
-增强“生命感”。
-
-可做内容
-
-* 更自然的说话节奏
-* 更细腻的 blink 与 happy 过渡
-* 点击兔子的更多回应
-* 新增 sad / curious / surprised 等状态
-* 更丰富的 Bunny Assets 与动画逻辑
-
-Phase 5.1：Bunny 表情与轻动画增强
-
-目标：
-在不重做现有语音对话主链路的前提下，升级 Bunny 的生命感表现。
-
-范围：
-基于现有 Hero Master 和状态图资产，新增小型 sprite / 表情帧工作流，用于增强以下表现：
-
-* blink 眨眼循环
-* speaking 嘴型循环
-* ear react 耳朵轻反应
-* happy 轻微开心反应
-* 后续可扩展更多微表情
-
-实现方式：
-使用统一的 Bunny identity master 生成 expression / sprite sheet，逐帧裁切、逐帧去背景、人工筛帧排序，最终接入前端状态机替换当前单帧切换方案。
-
-本阶段产出：
-
-* Bunny sprite 资产规范
-* 可复用的表情帧生成流程
-* 至少 2 到 3 组可接入前端的微动画
-* 前端状态机升级为支持多帧播放
-
-不在本阶段实现：
-
-* 复杂全身动作
-* 走路、转身、跳跃等游戏角色动画
-* 重 3D / 骨骼动画系统
-⸻
-
-十三、成功标准
-
-MVP 是否成功，不看功能多少，主要看三件事：
-
+MVP 是否成功不看功能多少，主要看三件事：
 1. 孩子是否愿意再次打开
-2. 孩子是否觉得“这是我的兔子在说话”
+2. 孩子是否觉得"这是我的兔子在说话"
 3. 一次对话是否能自然持续几分钟以上
 
-⸻
-
-十四、给 Codex 的明确执行要求
-
-请先只做 Phase 1。
-
-当前只允许实现：
-
-* 现有 Bunny 前端原型整理
-* 麦克风按钮
-* STT
-* LLM
-* TTS
-* 状态联动
-
-当前不要实现：
-
-* Supabase
-* 长期记忆系统
-* 家长后台
-* 多角色
-* 复杂动画系统
-* 复杂场景
-* 额外游戏化功能
-
-当前开发目标
-
-做出一个真正可用的第一版闭环：
-孩子点一下麦克风
-说一句英语
-系统识别
-兔子回复
-兔子发声
-前端状态切换正确
-整个体验自然顺畅
+v2.0 新增一条：孩子是否会主动打开 memory 抽屉翻过去的对话。
 
 ⸻
 
+十二、给 Claude / Codex 的明确执行要求
 
-请先完整理解 PRD，但当前只执行 Phase 1，不要提前实现后续 Phase。
+优先级：Phase A → Phase B → Phase C，不得跳跃。
+
+每个 Phase 内的子任务必须按列出顺序完成。Phase A 的架构重构（A1）是阻塞性前置，未完成不得进入 A2+。
+
+每次功能改动后必须：
+* commit + push 到当前分支
+* 如果改动跨 3+ 文件，先在 PR 描述里说明拆分理由
+* 更新相关测试
+
+禁止：
+* 让 app/page.tsx 继续增长
+* 新增死代码（包括 "以防万一" 保留的旧组件）
+* 绕过 Supabase 直接写 localStorage 作为真源
+* 跳过 triggerScope 直接把所有记忆塞进 prompt
+
+当前起点：Phase A 的 A1 架构重构。

@@ -4,7 +4,26 @@ import { BUNNY_TTS_SETTINGS } from "../../config/voice";
 import { expectOk } from "../http";
 import { getProviderEnv } from "../provider-env";
 
-export async function synthesizeWithElevenLabs(text: string) {
+export type WordTiming = {
+  word: string;
+  startMs: number;
+  endMs: number;
+};
+
+export type SynthesisResult = {
+  audioBase64: string;
+  mimeType: string;
+  wordTimings: WordTiming[];
+};
+
+// Use the plain /text-to-speech endpoint so ElevenLabs can stream audio
+// bytes as they're generated. The /with-timestamps endpoint sounds nice in
+// theory (per-character alignment for karaoke) but it has to finish the
+// full synthesis before it can return a single JSON blob, which roughly
+// doubled time-to-first-word. We trade precise per-word timing for real-
+// time feel; the client derives karaoke highlights from audio.currentTime
+// proportionally, which looks natural for a 6-year-old.
+export async function synthesizeWithElevenLabs(text: string): Promise<SynthesisResult> {
   const env = getProviderEnv();
 
   const response = await fetch(
@@ -31,5 +50,6 @@ export async function synthesizeWithElevenLabs(text: string) {
   return {
     audioBase64,
     mimeType: "audio/mpeg",
+    wordTimings: [],
   };
 }

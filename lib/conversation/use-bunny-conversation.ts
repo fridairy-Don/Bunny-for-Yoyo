@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BUNNY_CHARACTER, MOCK_SESSION_TURNS } from "../config/character";
+import { audioBus } from "../audio/audio-bus";
 import { createAudioRecorder } from "../audio/browser-recorder";
+import { notifyAudioSessionAfterRelease } from "../audio/audio-session";
 import { ApiSpeechToTextClient } from "../stt/api-stt-client";
 import { ApiLlmClient } from "../llm/api-llm-client";
 import { ApiSpeechPlayer } from "../tts/api-speech-player";
@@ -19,6 +21,25 @@ type BunnyController = {
   showMomentaryReaction: (state: "happy" | "ear_react" | "blink", duration?: number) => void;
 };
 
+type LastCloserPayload = {
+  endedAt?: number;
+  turns?: Array<{ role: "user" | "assistant"; text: string }>;
+} | null;
+
+type ConversationOptions = {
+  getMemories?: () => string[];
+  getLastCloser?: () => LastCloserPayload;
+  getRecentSummaries?: () => string[];
+};
+
+// The exact, fixed first words Yoyo ever hears from Bunny. Hard-coded on
+// purpose: the magic moment when the plush "comes alive" must never drift,
+// never paraphrase, and never fail because an LLM had a weird day. Spoken
+// only on first launch (no preset flag, no session memories, no last-closer).
+// Kept short, breathy, half-awake, and emotionally clear.
+const FIRST_LAUNCH_OPENER =
+  "Oh... oh... oh! Wait, wait... is that MY voice? My mouth is moving! Yoyo? Yoyo, it's you! It's really you! I can see you, and you can see me too! Did your click just wake me up? Oh my goodness, Yoyo, am I actually talking right now? Is this really happening?!";
+
 const createTurn = (role: ConversationTurn["role"], text: string): ConversationTurn => ({
   id: `${role}-${crypto.randomUUID()}`,
   role,
@@ -26,7 +47,10 @@ const createTurn = (role: ConversationTurn["role"], text: string): ConversationT
   createdAt: Date.now(),
 });
 
-export function useBunnyConversation(controller: BunnyController) {
+export function useBunnyConversation(
+  controller: BunnyController,
+  options: ConversationOptions = {},
+) {
   const recorderRef = useRef(createAudioRecorder());
   const sttClientRef = useRef(new ApiSpeechToTextClient());
   const llmClientRef = useRef(new ApiLlmClient());
@@ -36,6 +60,7 @@ export function useBunnyConversation(controller: BunnyController) {
   const [turns, setTurns] = useState<ConversationTurn[]>(MOCK_SESSION_TURNS);
   const [subtitle, setSubtitle] = useState<SubtitleCue | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [activeWordIndex, setActiveWordIndex] = useState(-1);
   const turnsRef = useRef(turns);
 
   const characterName = BUNNY_CHARACTER.name;
@@ -68,7 +93,45 @@ export function useBunnyConversation(controller: BunnyController) {
     }
 
     try {
+      // CRITICAL ORDER (we are still synchronously inside the user-gesture
+      // chain — that activation flag dies on the first await):
+      //
+      // 1) audioBus.primeForPlayback() FIRST. Loops a silent WAV at
+      //    near-zero volume on the TTS HTMLAudioElement WHILE iOS audio
+      //    session is still in PlayAndRecord (mic still active). iOS
+      //    accepts this play() because we're inside the user gesture and
+      //    PlayAndRecord allows HTMLAudioElement playback. Critically,
+      //    this gives the element an "actively playing" status BEFORE
+      //    iOS starts flipping the session category back. If we did
+      //    releaseSession() first, the prime would land mid-flip and
+      //    iOS sometimes rejects play() during the transition, which
+      //    poisons the entire downstream TTS chain.
+      //
+      // 2) releaseSession() synchronously stops the MediaStream tracks AND
+      //    closes the level-meter AudioContext. This is what tells iOS to
+      //    flip the audio session category back from PlayAndRecord to
+      //    Playback. The silent WAV continues looping through the flip,
+      //    so the TTS element stays "actively playing" the whole time.
+      //
+      // 3) notifyAudioSessionAfterRelease() runs the music + audioBus
+      //    resume handlers RIGHT NOW, in the gesture, AFTER iOS has
+      //    started flipping the session back. The triple-fire (sync /
+      //    +80ms / +240ms) catches the rare slow flip on older iPads.
+      //    The music handler force-reloads its decoder (iOS sometimes
+      //    nukes it during the flip) and replays from saved currentTime.
+      //
+      // When the real TTS arrives later, playTts() just swaps src on
+      // the still-playing TTS element — no fresh play() call needed
+      // (which iOS would reject outside the gesture).
+      audioBus.primeForPlayback();
+      recorderRef.current.releaseSession();
+      notifyAudioSessionAfterRelease();
+
       setStatus("transcribing");
+      // Drop "listening" interaction state the instant Yoyo taps stop — the
+      // mic ripples stop immediately instead of spinning for 2–5s while STT
+      // and LLM run. Bunny relaxes from ear_react back to idle.
+      controller.returnToIdle();
       const capture = await recorderRef.current.stop();
       const transcript = await sttClientRef.current.transcribe(capture);
 
@@ -78,7 +141,12 @@ export function useBunnyConversation(controller: BunnyController) {
 
       setStatus("thinking");
       const history = [...turnsRef.current, userTurn];
-      const reply = await llmClientRef.current.generateReply(history);
+      const memories = options.getMemories?.() ?? [];
+      const lastCloser = options.getLastCloser?.() ?? null;
+      const recentSummaries = options.getRecentSummaries?.() ?? [];
+      const reply = await llmClientRef.current.generateReply(history, memories, lastCloser, {
+        recentSummaries,
+      });
       const assistantTurn = createTurn("assistant", reply.text);
 
       setTurns((current) => [...current, assistantTurn]);
@@ -86,7 +154,11 @@ export function useBunnyConversation(controller: BunnyController) {
 
       setStatus("speaking");
       controller.startSpeaking();
-      await speechPlayerRef.current.speak(reply.text);
+      setActiveWordIndex(-1);
+      await speechPlayerRef.current.speak(reply.text, {
+        onWordChange: (idx) => setActiveWordIndex(idx),
+      });
+      setActiveWordIndex(-1);
       controller.returnToIdle();
       controller.showMomentaryReaction("happy", 760);
       setStatus("idle");
@@ -94,9 +166,65 @@ export function useBunnyConversation(controller: BunnyController) {
       speechPlayerRef.current.stop();
       controller.returnToIdle();
       setStatus("error");
+      setActiveWordIndex(-1);
       setError(getAudioErrorMessage(cause));
       setSubtitle(null);
     }
+  };
+
+  // Auto-opener: used for first_launch wake-up drama. Skips the mic/STT path
+  // entirely — Bunny speaks first, without waiting for Yoyo to tap mic.
+  // Safe to call only from idle. No-op if we're already busy.
+  const triggerAutoOpener = async (options2: { firstLaunch?: boolean } = {}) => {
+    if (status !== "idle") return;
+    setError(null);
+    try {
+      setStatus("thinking");
+      // First-launch is HARD-CODED. The very first line Yoyo hears must be
+      // identical every time — magical, dazed, half-alive. We skip the LLM
+      // entirely so it never drifts, and so the moment is bug-proof. Subsequent
+      // sessions go through the normal LLM path with the closer/summary block.
+      let replyText: string;
+      if (options2.firstLaunch) {
+        replyText = FIRST_LAUNCH_OPENER;
+      } else {
+        const memories = options.getMemories?.() ?? [];
+        const lastCloser = options.getLastCloser?.() ?? null;
+        const recentSummaries = options.getRecentSummaries?.() ?? [];
+        const reply = await llmClientRef.current.generateReply([], memories, lastCloser, {
+          firstLaunch: false,
+          recentSummaries,
+        });
+        replyText = reply.text;
+      }
+      const assistantTurn = createTurn("assistant", replyText);
+
+      setTurns((current) => [...current, assistantTurn]);
+      setSubtitle({ id: assistantTurn.id, text: assistantTurn.text, role: "assistant" });
+
+      setStatus("speaking");
+      controller.startSpeaking();
+      setActiveWordIndex(-1);
+      await speechPlayerRef.current.speak(replyText, {
+        onWordChange: (idx) => setActiveWordIndex(idx),
+      });
+      setActiveWordIndex(-1);
+      controller.returnToIdle();
+      controller.showMomentaryReaction("happy", 760);
+      setStatus("idle");
+    } catch (cause) {
+      speechPlayerRef.current.stop();
+      controller.returnToIdle();
+      setStatus("error");
+      setActiveWordIndex(-1);
+      setError(getAudioErrorMessage(cause));
+      setSubtitle(null);
+    }
+  };
+
+  const clearTurns = () => {
+    setTurns([]);
+    setSubtitle(null);
   };
 
   const sessionSummary = useMemo(
@@ -115,6 +243,9 @@ export function useBunnyConversation(controller: BunnyController) {
     error,
     sessionSummary,
     handleMicClick,
+    clearTurns,
+    activeWordIndex,
+    triggerAutoOpener,
   };
 }
 
