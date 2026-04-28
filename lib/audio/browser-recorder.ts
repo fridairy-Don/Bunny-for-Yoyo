@@ -9,6 +9,12 @@ import {
 export type AudioRecorder = {
   isSupported: boolean;
   start: () => Promise<void>;
+  // Synchronously release the mic + level-meter AudioContext so iOS can flip
+  // its audio session category back to Playback BEFORE the user-gesture
+  // window closes. Safe to call from inside the click handler. After this
+  // returns, the MediaRecorder is in the process of finalising — call
+  // stop() to await the captured blob.
+  releaseSession: () => void;
   stop: () => Promise<RecorderCapture>;
 };
 
@@ -29,6 +35,9 @@ class BrowserAudioRecorder implements AudioRecorder {
   private sourceNode: MediaStreamAudioSourceNode | null = null;
   private levelTimer: ReturnType<typeof setInterval> | null = null;
   private maxInputLevel = 0;
+  // Set by releaseSession() so stop() knows the mic is already gone and it
+  // only has to await the MediaRecorder's onstop event for the blob.
+  private sessionReleased = false;
 
   async start() {
     if (!this.isSupported) {
@@ -118,11 +127,36 @@ class BrowserAudioRecorder implements AudioRecorder {
     }
   }
 
+  // Synchronous: release the mic + level-meter AudioContext NOW, while we
+  // are still inside the user-gesture chain that started from the mic-stop
+  // tap. This is what lets iOS flip its audio session category back to
+  // Playback before the music/TTS resume calls fire — without it, those
+  // resume calls land while iOS is still in PlayAndRecord and silently
+  // fail. We initiate MediaRecorder.stop() too so the dataavailable +
+  // stop events queue up; the awaited stop() below resolves with the blob.
+  releaseSession() {
+    if (this.sessionReleased) return;
+    this.sessionReleased = true;
+    const recorder = this.mediaRecorder;
+    // Stop the MediaRecorder first so it flushes any in-flight buffer
+    // before we yank the underlying tracks. (Calling track.stop() before
+    // recorder.stop() can occasionally lose the final chunk.)
+    if (recorder && recorder.state !== "inactive") {
+      try {
+        recorder.stop();
+      } catch {
+        // ignore — recorder may have already been stopped.
+      }
+    }
+    this.cleanupStream();
+  }
+
   async stop() {
     if (!this.mediaRecorder) {
       // Nothing was actually recording — but if we'd notified subscribers
       // on acquire (or the recorder was half-initialised), release them.
       void notifyAudioSessionAfterRelease();
+      this.sessionReleased = false;
       return {
         blob: new Blob([], { type: "audio/webm" }),
         durationMs: Math.max(Date.now() - this.startedAt, 1200),
@@ -141,10 +175,13 @@ class BrowserAudioRecorder implements AudioRecorder {
         const problem = getCaptureProblem(blob, this.maxInputLevel);
 
         this.mediaRecorder = null;
+        // releaseSession may have already cleaned up; cleanupStream is
+        // idempotent so this is safe either way.
         this.cleanupStream();
         this.chunks = [];
         this.mimeType = "audio/webm";
         this.startProblem = null;
+        this.sessionReleased = false;
 
         debugAudio("stop", {
           durationMs: Math.max(Date.now() - this.startedAt, 1200),
@@ -154,9 +191,10 @@ class BrowserAudioRecorder implements AudioRecorder {
           size: blob.size,
         });
 
-        // Tracks are stopped — let iOS finish flipping its audio session
-        // category back, then wake the music + TTS sinks. Fire-and-forget
-        // so we don't delay returning the capture to the conversation.
+        // If the click handler did not call releaseSession() ahead of time,
+        // we are only NOW (post-await) releasing the mic — fire the
+        // session-release signal here too. Subscribers are idempotent so
+        // double-firing when releaseSession was already called is harmless.
         void notifyAudioSessionAfterRelease();
 
         resolve({
@@ -168,7 +206,12 @@ class BrowserAudioRecorder implements AudioRecorder {
         });
       };
 
-      recorder.stop();
+      // releaseSession() may have already triggered recorder.stop() — do
+      // not call it again. MediaRecorder.stop() on an "inactive" instance
+      // throws InvalidStateError on Safari.
+      if (recorder.state !== "inactive") {
+        recorder.stop();
+      }
     });
   }
 

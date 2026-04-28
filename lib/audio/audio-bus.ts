@@ -2,6 +2,55 @@
 
 import { onAudioSessionAfterRelease } from "./audio-session";
 
+// A tiny silent WAV (≈0.2s, 8kHz mono 8-bit). We play this on the TTS
+// HTMLAudioElement inside the user-gesture chain of the mic-stop tap, then
+// keep it looping at volume 0 until real TTS data arrives. iOS treats the
+// element as "currently playing" while it loops, so swapping audio.src to
+// the real TTS data URI later keeps playback alive WITHOUT needing a fresh
+// user gesture — which is otherwise gone after our async transcription /
+// LLM / TTS-fetch chain.
+function buildSilentWavDataUri(): string {
+  if (typeof window === "undefined") return "";
+  const sampleRate = 8000;
+  const durationSec = 0.2;
+  const numSamples = Math.floor(sampleRate * durationSec);
+  const buffer = new ArrayBuffer(44 + numSamples);
+  const view = new DataView(buffer);
+  // RIFF header
+  view.setUint8(0, 0x52); view.setUint8(1, 0x49);
+  view.setUint8(2, 0x46); view.setUint8(3, 0x46);
+  view.setUint32(4, 36 + numSamples, true);
+  view.setUint8(8, 0x57); view.setUint8(9, 0x41);
+  view.setUint8(10, 0x56); view.setUint8(11, 0x45);
+  // fmt chunk
+  view.setUint8(12, 0x66); view.setUint8(13, 0x6d);
+  view.setUint8(14, 0x74); view.setUint8(15, 0x20);
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);            // PCM
+  view.setUint16(22, 1, true);            // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate, true);   // byte rate
+  view.setUint16(32, 1, true);            // block align
+  view.setUint16(34, 8, true);            // bits per sample
+  // data chunk
+  view.setUint8(36, 0x64); view.setUint8(37, 0x61);
+  view.setUint8(38, 0x74); view.setUint8(39, 0x61);
+  view.setUint32(40, numSamples, true);
+  // 8-bit unsigned silence is 0x80 (mid-scale).
+  for (let i = 0; i < numSamples; i++) view.setUint8(44 + i, 0x80);
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return `data:audio/wav;base64,${btoa(binary)}`;
+}
+
+let SILENT_WAV: string | null = null;
+function getSilentWav(): string {
+  if (SILENT_WAV !== null) return SILENT_WAV;
+  SILENT_WAV = buildSilentWavDataUri();
+  return SILENT_WAV;
+}
+
 // A single shared audio bus for Bunny's TTS playback. Originally this was
 // Web Audio (decodeAudioData → AudioBufferSourceNode), which mixes
 // cleanly with the background-music HTMLAudioElement but is *not*
@@ -33,6 +82,11 @@ class AudioBus {
   private audio: HTMLAudioElement | null = null;
   private currentToken = 0;
   private subscribed = false;
+  // True while we are looping the silent WAV warm-up (between the mic-stop
+  // user gesture and the real TTS arriving). When this flag is true, the
+  // arrival of real TTS just swaps audio.src — playback continues without
+  // needing a fresh play() call (which iOS would reject outside gesture).
+  private warming = false;
 
   private ensureAudio(): HTMLAudioElement | null {
     if (typeof window === "undefined") return null;
@@ -70,14 +124,46 @@ class AudioBus {
     return audio;
   }
 
+  // Called from inside the mic-stop user gesture so iOS keeps treating
+  // this audio element as "actively playing" through the async transcription
+  // + LLM + TTS-fetch chain. Loops the silent WAV at volume 0. When real
+  // TTS data arrives, playTts() just swaps audio.src — the in-flight
+  // playback continues, no fresh play() call needed.
+  primeForPlayback(): void {
+    const audio = this.ensureAudio();
+    if (!audio) return;
+    if (this.warming) return;
+    const silent = getSilentWav();
+    if (!silent) return;
+    try {
+      this.warming = true;
+      audio.loop = true;
+      audio.muted = true;
+      audio.volume = 0;
+      audio.src = silent;
+      const p = audio.play();
+      if (p && typeof p.catch === "function") {
+        p.catch(() => {
+          this.warming = false;
+        });
+      }
+    } catch {
+      this.warming = false;
+    }
+  }
+
   stopTts() {
     // Bump token first so any in-flight progress loop / pending promise
     // bails out cleanly instead of fighting the new playback.
     this.currentToken += 1;
     const audio = this.audio;
     if (!audio) return;
+    this.warming = false;
     try {
       audio.pause();
+      audio.loop = false;
+      audio.muted = false;
+      audio.volume = 1;
       // Clearing src releases the decoder's hold on the data URI; the
       // next playTts() will assign a fresh one.
       audio.removeAttribute("src");
@@ -95,9 +181,23 @@ class AudioBus {
     const audio = this.ensureAudio();
     if (!audio) return { durationMs: 0 };
 
-    // Stop any prior playback first so the timeupdate / ended listeners
-    // from the previous run don't leak into this token.
-    this.stopTts();
+    // If we are mid-warm-up (silent WAV looping from the mic-stop gesture),
+    // we MUST NOT call stopTts() — that pauses the element and removes the
+    // src, which destroys the iOS "this element is playing" state. Instead,
+    // bump the token, settle the element back to normal volume, and swap
+    // src directly. The in-flight playback continues with the new data.
+    const wasWarming = this.warming;
+    if (wasWarming) {
+      this.currentToken += 1;
+      this.warming = false;
+      audio.loop = false;
+      audio.muted = false;
+      audio.volume = 1;
+    } else {
+      // Stop any prior playback first so the timeupdate / ended listeners
+      // from the previous run don't leak into this token.
+      this.stopTts();
+    }
 
     const token = ++this.currentToken;
     const effectiveMime = mimeType || "audio/mpeg";
