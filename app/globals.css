@@ -1665,10 +1665,15 @@ body.sleeping .wall {
   pointer-events: none;
   filter: brightness(0.985);
 }
-.wall-polaroid:hover {
-  transform: translate(-50%, -3px) rotate(0deg) !important;
-  box-shadow: 0 12px 22px oklch(0.3 0.04 30 / 0.28),
-    0 4px 7px oklch(0.3 0.04 30 / 0.18);
+@media (hover: hover) {
+  /* On hover-capable devices only — iPad has no mouseleave so this would
+     stick after a tap, leaving the photo sitting un-rotated until the next
+     fresh interaction. */
+  .wall-polaroid:hover {
+    transform: translate(-50%, -3px) rotate(0deg) !important;
+    box-shadow: 0 12px 22px oklch(0.3 0.04 30 / 0.28),
+      0 4px 7px oklch(0.3 0.04 30 / 0.18);
+  }
 }
 .wall-polaroid-pin {
   position: absolute;
@@ -2250,6 +2255,22 @@ body.sleeping .wall {
   isolation: isolate;
 }
 
+/* iPad / touch hardening for every clickable element inside the gallery.
+   Without these, iOS Safari:
+   1. flashes a gray rectangle on every tap (-webkit-tap-highlight-color)
+   2. waits 300ms to fire click + may trigger double-tap zoom
+      (touch-action: manipulation)
+   3. lets a tap toggle the system text-selection callout under the finger
+      (-webkit-user-select / user-select)
+   These are bundled here so we don't have to repeat them on every button
+   class below. */
+.pgallery button {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 .pgallery-backdrop {
   position: fixed;
   inset: 0;
@@ -2289,9 +2310,11 @@ body.sleeping .wall {
   /* Tiny entrance bounce when the gallery opens. */
   animation: pgallery-close-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
-.pgallery-close:hover {
-  transform: scale(1.12) rotate(90deg);
-  background: oklch(0.99 0.02 60);
+@media (hover: hover) {
+  .pgallery-close:hover {
+    transform: scale(1.12) rotate(90deg);
+    background: oklch(0.99 0.02 60);
+  }
 }
 .pgallery-close:active {
   transform: scale(0.92) rotate(90deg);
@@ -2354,12 +2377,14 @@ body.sleeping .wall {
   opacity: 0.62;
   filter: saturate(0.85);
 }
-.pgallery-card:hover {
-  /* Hint that this card will *come to focus* on click, not enlarge.
-     Small bounce-in lets the user feel the card responding. */
-  opacity: 0.85;
-  transform: scale(0.9);
-  filter: saturate(0.95);
+@media (hover: hover) {
+  .pgallery-card:hover {
+    /* Hint that this card will *come to focus* on click, not enlarge.
+       Small bounce-in lets the user feel the card responding. */
+    opacity: 0.85;
+    transform: scale(0.9);
+    filter: saturate(0.95);
+  }
 }
 .pgallery-card.active {
   transform: scale(1);
@@ -2370,9 +2395,11 @@ body.sleeping .wall {
      focus transfer is felt, not just seen. */
   animation: pgallery-card-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
-.pgallery-card.active:hover {
-  transform: scale(1.02);
-  opacity: 1;
+@media (hover: hover) {
+  .pgallery-card.active:hover {
+    transform: scale(1.02);
+    opacity: 1;
+  }
 }
 @keyframes pgallery-card-pop {
   0%   { transform: scale(0.92); }
@@ -2404,10 +2431,12 @@ body.sleeping .wall {
     background 0.2s ease,
     box-shadow 0.2s ease;
 }
-.pgallery-arrow:hover {
-  background: oklch(0.99 0.01 60);
-  transform: translateY(-50%) scale(1.12);
-  box-shadow: 0 10px 24px oklch(0 0 0 / 0.24);
+@media (hover: hover) {
+  .pgallery-arrow:hover {
+    background: oklch(0.99 0.01 60);
+    transform: translateY(-50%) scale(1.12);
+    box-shadow: 0 10px 24px oklch(0 0 0 / 0.24);
+  }
 }
 .pgallery-arrow:active {
   transform: translateY(-50%) scale(0.94);
@@ -2448,9 +2477,11 @@ body.sleeping .wall {
     transform 0.36s cubic-bezier(0.34, 1.56, 0.64, 1),
     width 0.36s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-.pgallery-dot:hover {
-  background: oklch(0.97 0.02 60 / 0.85);
-  transform: scale(1.25);
+@media (hover: hover) {
+  .pgallery-dot:hover {
+    background: oklch(0.97 0.02 60 / 0.85);
+    transform: scale(1.25);
+  }
 }
 .pgallery-dot.active {
   background: oklch(0.97 0.02 60 / 1);
@@ -2725,7 +2756,9 @@ body.sleeping .wall {
     background 0.2s ease,
     color 0.2s ease;
 }
-.pgallery-heart:hover { transform: translateY(-2px) scale(1.04); }
+@media (hover: hover) {
+  .pgallery-heart:hover { transform: translateY(-2px) scale(1.04); }
+}
 .pgallery-heart:active { transform: scale(0.94); transition-duration: 0.1s; }
 .pgallery-heart .heart-glyph {
   font-size: 14px;
@@ -2759,8 +2792,10 @@ body.sleeping .wall {
     transform 0.32s cubic-bezier(0.34, 1.56, 0.64, 1),
     background 0.2s ease;
 }
-.pgallery-remove:hover,
-.pgallery-remove-confirm:hover { transform: translateY(-2px) scale(1.04); }
+@media (hover: hover) {
+  .pgallery-remove:hover,
+  .pgallery-remove-confirm:hover { transform: translateY(-2px) scale(1.04); }
+}
 .pgallery-remove:active,
 .pgallery-remove-confirm:active { transform: scale(0.94); transition-duration: 0.1s; }
 .pgallery-remove-confirm {
