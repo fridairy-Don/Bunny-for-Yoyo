@@ -96,27 +96,36 @@ export function useBunnyConversation(
       // CRITICAL ORDER (we are still synchronously inside the user-gesture
       // chain — that activation flag dies on the first await):
       //
-      // 1) releaseSession() synchronously stops the MediaStream tracks AND
+      // 1) audioBus.primeForPlayback() FIRST. Loops a silent WAV at
+      //    near-zero volume on the TTS HTMLAudioElement WHILE iOS audio
+      //    session is still in PlayAndRecord (mic still active). iOS
+      //    accepts this play() because we're inside the user gesture and
+      //    PlayAndRecord allows HTMLAudioElement playback. Critically,
+      //    this gives the element an "actively playing" status BEFORE
+      //    iOS starts flipping the session category back. If we did
+      //    releaseSession() first, the prime would land mid-flip and
+      //    iOS sometimes rejects play() during the transition, which
+      //    poisons the entire downstream TTS chain.
+      //
+      // 2) releaseSession() synchronously stops the MediaStream tracks AND
       //    closes the level-meter AudioContext. This is what tells iOS to
       //    flip the audio session category back from PlayAndRecord to
-      //    Playback. Without it, every audio.play() call below lands while
-      //    iOS is still routing through the recording session and silently
-      //    fails (this is the iPad bug — music + TTS both stay mute).
+      //    Playback. The silent WAV continues looping through the flip,
+      //    so the TTS element stays "actively playing" the whole time.
       //
-      // 2) notifyAudioSessionAfterRelease() runs the music + audioBus
+      // 3) notifyAudioSessionAfterRelease() runs the music + audioBus
       //    resume handlers RIGHT NOW, in the gesture, AFTER iOS has
       //    started flipping the session back. The triple-fire (sync /
       //    +80ms / +240ms) catches the rare slow flip on older iPads.
+      //    The music handler force-reloads its decoder (iOS sometimes
+      //    nukes it during the flip) and replays from saved currentTime.
       //
-      // 3) audioBus.primeForPlayback() loops a silent WAV at volume 0 on
-      //    the TTS HTMLAudioElement so iOS keeps treating it as actively
-      //    playing through the async transcription / LLM / TTS-fetch
-      //    chain. When the real TTS arrives, playTts() just swaps src —
-      //    no fresh play() call needed (which iOS would reject outside
-      //    the gesture).
+      // When the real TTS arrives later, playTts() just swaps src on
+      // the still-playing TTS element — no fresh play() call needed
+      // (which iOS would reject outside the gesture).
+      audioBus.primeForPlayback();
       recorderRef.current.releaseSession();
       notifyAudioSessionAfterRelease();
-      audioBus.primeForPlayback();
 
       setStatus("transcribing");
       // Drop "listening" interaction state the instant Yoyo taps stop — the

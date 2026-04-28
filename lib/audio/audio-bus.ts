@@ -126,9 +126,19 @@ class AudioBus {
 
   // Called from inside the mic-stop user gesture so iOS keeps treating
   // this audio element as "actively playing" through the async transcription
-  // + LLM + TTS-fetch chain. Loops the silent WAV at volume 0. When real
+  // + LLM + TTS-fetch chain. Loops the silent WAV at volume ~0. When real
   // TTS data arrives, playTts() just swaps audio.src — the in-flight
   // playback continues, no fresh play() call needed.
+  //
+  // CRITICAL — DO NOT USE muted=true HERE. iOS Safari treats muted-class
+  // media autoplay differently from unmuted-class. If we prime with
+  // muted=true and later set muted=false on the real TTS, iOS can treat
+  // the unmute as a "new media start" and demand a fresh gesture (which
+  // is gone by then — we awaited STT + LLM + TTS-fetch). The whole
+  // transition must stay unmuted-class, just with volume near zero.
+  // Volume=0 alone is sometimes treated by Chrome as "silent → don't
+  // count as playing" too, so we use a near-zero audible level which
+  // every browser respects as actively-playing audible-class media.
   primeForPlayback(): void {
     const audio = this.ensureAudio();
     if (!audio) return;
@@ -138,14 +148,19 @@ class AudioBus {
     try {
       this.warming = true;
       audio.loop = true;
-      audio.muted = true;
-      audio.volume = 0;
+      audio.muted = false;
+      audio.volume = 0.0001;
       audio.src = silent;
       const p = audio.play();
       if (p && typeof p.catch === "function") {
-        p.catch(() => {
-          this.warming = false;
-        });
+        // DO NOT clear `warming` on rejection. Promise rejection from
+        // iOS during an audio-session-flip window doesn't necessarily
+        // mean the element won't start playing once the flip completes —
+        // the play request is still queued. Clearing `warming` here would
+        // poison the next playTts() into using the slower stop+swap path
+        // which iOS then rejects (no gesture). Stay optimistic and let
+        // the subsequent src swap inherit the queued playback state.
+        p.catch(() => undefined);
       }
     } catch {
       this.warming = false;
@@ -260,16 +275,32 @@ class AudioBus {
       };
       raf = requestAnimationFrame(tick);
 
-      const p = audio.play();
-      if (p && typeof p.catch === "function") {
-        p.catch(() => {
-          // play() rejection most often means iOS hadn't unlocked this
-          // element yet (no prior user gesture). Resolve as a 0-length
-          // playback so the conversation flow keeps moving — the caller
-          // will fall back to its own browser-speech path.
-          finish(0);
-        });
-      }
+      const tryPlay = () => {
+        const p = audio.play();
+        if (p && typeof p.catch === "function") {
+          p.catch(() => {
+            // First play rejected. iOS Safari sometimes needs an
+            // explicit load() to re-establish the decoder after a
+            // recent audio-session category flip. Try once more.
+            try {
+              audio.load();
+              const p2 = audio.play();
+              if (p2 && typeof p2.catch === "function") {
+                p2.catch(() => {
+                  // Both attempts failed. Resolve as a 0-length
+                  // playback so the conversation flow keeps moving —
+                  // the caller will fall back to its own browser-
+                  // speech path.
+                  finish(0);
+                });
+              }
+            } catch {
+              finish(0);
+            }
+          });
+        }
+      };
+      tryPlay();
     });
   }
 }

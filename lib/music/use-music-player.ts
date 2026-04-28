@@ -163,10 +163,32 @@ export function useMusicPlayer(initialVolume = 0.2): MusicPlayerApi {
       // Force a fresh play() call. iOS will not resume on its own — it
       // needs the gesture-derived audio session that was active at the
       // start of recorder.stop() to drive a new play.
-      const result = audio.play();
-      if (result && typeof result.catch === "function") {
-        result.catch(() => undefined);
-      }
+      const tryResume = () => {
+        const p = audio.play();
+        if (p && typeof p.catch === "function") {
+          p.catch(() => {
+            // play() rejected — iOS sometimes nukes the decoder when
+            // the audio session flips from PlayAndRecord back to
+            // Playback. Reload the src to reset the decoder, restore
+            // currentTime, and try one more time. This is a no-op on
+            // browsers that didn't lose state.
+            if (!audio.src) return;
+            const wantTime = audio.currentTime || 0;
+            try {
+              audio.load();
+              audio.currentTime = wantTime;
+            } catch {
+              // currentTime can throw before metadata is loaded; ignore
+              // and let the audio start from 0.
+            }
+            const p2 = audio.play();
+            if (p2 && typeof p2.catch === "function") {
+              p2.catch(() => undefined);
+            }
+          });
+        }
+      };
+      tryResume();
       // Make sure the React state catches up so the play/pause UI is in
       // sync with the actual playback.
       setPlaying(true);
