@@ -219,7 +219,14 @@ export function PolaroidGallery({
   // ---- card click router ---------------------------------------------------
   const onCardClick = (idx: number) => {
     if (mode === "carousel") {
-      setActiveIndex(idx);
+      // Two-step navigation: tapping a non-focused card just slides it
+      // into focus FIRST. The second tap on the now-focused card is what
+      // enlarges. This gives the user a chance to "browse" the strip
+      // without accidentally launching the photo they were peeking at.
+      if (idx !== activeIndex) {
+        setActiveIndex(idx);
+        return;
+      }
       setScale(1);
       setMode("enlarged");
       return;
@@ -469,27 +476,44 @@ export function PolaroidGallery({
               aria-label="Flip back to photo"
             >
               <div className="pgallery-back-inner">
-                <div className="pgallery-back-date">
-                  {friendlyDate(activeItem.sessionDate)}
-                </div>
-                <div className="pgallery-back-summary">
-                  {captionFor(activeItem)}
+                <div className="pgallery-back-header">
+                  <div className="pgallery-back-date">
+                    {friendlyDate(activeItem.sessionDate)}
+                  </div>
+                  <div className="pgallery-back-summary">
+                    {captionFor(activeItem)}
+                  </div>
                 </div>
                 <div className="pgallery-back-transcript">
                   {transcript ? (
                     transcript.turns
                       .filter((t) => t.role !== "system")
-                      .map((turn) => (
-                        <div
-                          key={turn.id}
-                          className={`pgallery-line ${turn.role === "user" ? "user" : ""}`}
-                        >
-                          <span className="who">
-                            {turn.role === "user" ? "Yoyo" : "Bunny"}
-                          </span>
-                          <span className="what">{turn.text}</span>
-                        </div>
-                      ))
+                      .map((turn) => {
+                        const isUser = turn.role === "user";
+                        return (
+                          <div
+                            key={turn.id}
+                            className={`pgallery-bubble-row ${isUser ? "user" : "bunny"}`}
+                          >
+                            <div
+                              className={`pgallery-avatar ${isUser ? "user" : "bunny"}`}
+                              aria-hidden="true"
+                            >
+                              {isUser ? "Y" : "B"}
+                            </div>
+                            <div className="pgallery-bubble-col">
+                              <div className="pgallery-bubble-name">
+                                {isUser ? "Yoyo" : "Bunny"}
+                              </div>
+                              <div
+                                className={`pgallery-bubble ${isUser ? "user" : "bunny"}`}
+                              >
+                                {turn.text}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
                   ) : loadingTranscript ? (
                     <div className="pgallery-back-empty">opening the talk…</div>
                   ) : !activeItem.sessionId ? (

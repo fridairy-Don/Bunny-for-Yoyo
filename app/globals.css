@@ -2283,6 +2283,23 @@ body.sleeping .wall {
   display: flex;
   align-items: center;
   justify-content: center;
+  transition:
+    transform 0.32s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background 0.2s ease;
+  /* Tiny entrance bounce when the gallery opens. */
+  animation: pgallery-close-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.pgallery-close:hover {
+  transform: scale(1.12) rotate(90deg);
+  background: oklch(0.99 0.02 60);
+}
+.pgallery-close:active {
+  transform: scale(0.92) rotate(90deg);
+  transition-duration: 0.12s;
+}
+@keyframes pgallery-close-in {
+  0%   { opacity: 0; transform: scale(0.6) rotate(-90deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0); }
 }
 
 /* ----- Carousel layer ---------------------------------------------------- */
@@ -2312,7 +2329,9 @@ body.sleeping .wall {
   display: flex;
   gap: 24px;
   align-items: center;
-  transition: transform 0.36s cubic-bezier(0.2, 0.9, 0.3, 1);
+  /* Spring-like ease: overshoots ~6% then settles. Makes the slide
+     feel physical rather than mechanical. */
+  transition: transform 0.52s cubic-bezier(0.34, 1.56, 0.64, 1);
   will-change: transform;
   /* Let the browser pan vertically and let us handle horizontal swipes. */
   touch-action: pan-y;
@@ -2324,13 +2343,41 @@ body.sleeping .wall {
   border: 0;
   padding: 0;
   cursor: pointer;
-  transition: transform 0.32s ease, opacity 0.32s ease;
-  transform: scale(0.86);
-  opacity: 0.72;
+  /* Spring transition for non-active → active scaling. Two springs
+     blended: scale gets a soft overshoot, opacity is linear so it
+     doesn't strobe. */
+  transition:
+    transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity 0.32s ease-out,
+    filter 0.4s ease-out;
+  transform: scale(0.84);
+  opacity: 0.62;
+  filter: saturate(0.85);
+}
+.pgallery-card:hover {
+  /* Hint that this card will *come to focus* on click, not enlarge.
+     Small bounce-in lets the user feel the card responding. */
+  opacity: 0.85;
+  transform: scale(0.9);
+  filter: saturate(0.95);
 }
 .pgallery-card.active {
   transform: scale(1);
   opacity: 1;
+  filter: saturate(1);
+  cursor: zoom-in; /* second click = enlarge */
+  /* On the moment of becoming active, replay a tiny bounce so the
+     focus transfer is felt, not just seen. */
+  animation: pgallery-card-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.pgallery-card.active:hover {
+  transform: scale(1.02);
+  opacity: 1;
+}
+@keyframes pgallery-card-pop {
+  0%   { transform: scale(0.92); }
+  60%  { transform: scale(1.04); }
+  100% { transform: scale(1); }
 }
 
 .pgallery-arrow {
@@ -2352,8 +2399,20 @@ body.sleeping .wall {
   align-items: center;
   justify-content: center;
   padding-bottom: 4px;
+  transition:
+    transform 0.32s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background 0.2s ease,
+    box-shadow 0.2s ease;
 }
-.pgallery-arrow:hover { background: oklch(0.99 0.01 60); }
+.pgallery-arrow:hover {
+  background: oklch(0.99 0.01 60);
+  transform: translateY(-50%) scale(1.12);
+  box-shadow: 0 10px 24px oklch(0 0 0 / 0.24);
+}
+.pgallery-arrow:active {
+  transform: translateY(-50%) scale(0.94);
+  transition-duration: 0.12s;
+}
 .pgallery-arrow-prev { left: max(env(safe-area-inset-left, 0px), 16px); }
 .pgallery-arrow-next { right: max(env(safe-area-inset-right, 0px), 16px); }
 .pgallery-mode-enlarged .pgallery-arrow,
@@ -2384,11 +2443,22 @@ body.sleeping .wall {
   background: oklch(0.96 0.02 60 / 0.55);
   padding: 0;
   cursor: pointer;
-  transition: background 0.2s ease, transform 0.2s ease;
+  transition:
+    background 0.24s ease,
+    transform 0.36s cubic-bezier(0.34, 1.56, 0.64, 1),
+    width 0.36s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.pgallery-dot:hover {
+  background: oklch(0.97 0.02 60 / 0.85);
+  transform: scale(1.25);
 }
 .pgallery-dot.active {
   background: oklch(0.97 0.02 60 / 1);
-  transform: scale(1.5);
+  /* Active dot stretches into a small pill — feels like the "you are
+     here" pin in iOS Photos. */
+  transform: scale(1);
+  width: 22px;
+  border-radius: 999px;
 }
 
 /* ----- Enlarged / flipped layer ----------------------------------------- */
@@ -2403,7 +2473,8 @@ body.sleeping .wall {
   /* Pinch-zoom is handled in JS via touch events. We disable browser
      defaults so the gesture doesn't scroll/zoom the page itself. */
   touch-action: none;
-  animation: pgallery-focus-in 0.24s cubic-bezier(0.2, 0.9, 0.3, 1);
+  /* Spring entrance: scale + opacity overshoot once then settle. */
+  animation: pgallery-focus-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
   /* Hard guarantee: nothing in the focus layer is ever blurred. The
      stage's filter:blur is scoped to .pgallery-stage only, but Safari
      in particular has been observed to "leak" filter compositing onto
@@ -2424,8 +2495,9 @@ body.sleeping .wall {
   -webkit-filter: none !important;
 }
 @keyframes pgallery-focus-in {
-  from { opacity: 0; transform: scale(0.94); }
-  to   { opacity: 1; transform: scale(1); }
+  0%   { opacity: 0; transform: scale(0.78); }
+  60%  { opacity: 1; transform: scale(1.04); }
+  100% { opacity: 1; transform: scale(1); }
 }
 
 .pgallery-flipper {
@@ -2434,7 +2506,9 @@ body.sleeping .wall {
   /* Polaroid card is square photo + caption strip below — slightly taller
      than wide. The aspect-ratio keeps the back face the same size. */
   aspect-ratio: 0.84;
-  transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  /* Slower, springier flip — the card actually feels like a physical
+     polaroid being turned over, with a tiny rebound on landing. */
+  transition: transform 0.7s cubic-bezier(0.34, 1.36, 0.64, 1);
   transform-style: preserve-3d;
   -webkit-transform-style: preserve-3d;
   will-change: transform;
@@ -2464,9 +2538,12 @@ body.sleeping .wall {
 .pgallery-back-inner {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   height: 100%;
   overflow: hidden;
+}
+.pgallery-back-header {
+  flex-shrink: 0;
 }
 .pgallery-back-date {
   font-family: var(--font-display, Georgia, serif);
@@ -2474,39 +2551,140 @@ body.sleeping .wall {
   color: oklch(0.5 0.04 40);
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  margin-bottom: 6px;
 }
 .pgallery-back-summary {
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 500;
   color: oklch(0.25 0.04 30);
   line-height: 1.45;
-  margin-bottom: 6px;
+  padding-bottom: 12px;
   border-bottom: 1px dashed oklch(0.85 0.02 60);
-  padding-bottom: 10px;
 }
 .pgallery-back-transcript {
   flex: 1;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding-right: 2px;
+  gap: 12px;
+  padding-right: 4px;
+  /* Soft, page-like backdrop so the bubbles read as a chat thread,
+     not as a wall of running text. */
+  background: linear-gradient(
+    180deg,
+    oklch(0.98 0.012 70 / 0) 0%,
+    oklch(0.97 0.014 65 / 0.4) 100%
+  );
+  border-radius: 8px;
+  padding: 10px 6px 10px 4px;
+  margin: 0 -4px -4px -2px;
 }
-.pgallery-line {
+.pgallery-back-transcript::-webkit-scrollbar { width: 4px; }
+.pgallery-back-transcript::-webkit-scrollbar-thumb {
+  background: oklch(0.78 0.02 50 / 0.5);
+  border-radius: 2px;
+}
+
+/* Bubble row = avatar + (name + bubble). Yoyo's rows mirror to the
+   right so the conversation visibly bounces between two voices.
+   Each bubble enters with a staggered fade-up so the conversation
+   "unrolls" instead of dumping all at once. */
+.pgallery-bubble-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  max-width: 100%;
+  animation: pgallery-bubble-in 0.46s cubic-bezier(0.34, 1.42, 0.64, 1) both;
+}
+.pgallery-bubble-row:nth-child(1)  { animation-delay: 0.04s; }
+.pgallery-bubble-row:nth-child(2)  { animation-delay: 0.10s; }
+.pgallery-bubble-row:nth-child(3)  { animation-delay: 0.16s; }
+.pgallery-bubble-row:nth-child(4)  { animation-delay: 0.22s; }
+.pgallery-bubble-row:nth-child(5)  { animation-delay: 0.28s; }
+.pgallery-bubble-row:nth-child(6)  { animation-delay: 0.32s; }
+.pgallery-bubble-row:nth-child(7)  { animation-delay: 0.36s; }
+.pgallery-bubble-row:nth-child(n+8) { animation-delay: 0.40s; }
+@keyframes pgallery-bubble-in {
+  0%   { opacity: 0; transform: translateY(10px) scale(0.92); }
+  60%  { opacity: 1; transform: translateY(-2px) scale(1.02); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.pgallery-bubble-row.user {
+  flex-direction: row-reverse;
+}
+.pgallery-avatar {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Quicksand", "Inter", sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: oklch(0.99 0.005 70);
+  box-shadow: 0 2px 4px oklch(0 0 0 / 0.12);
+  margin-top: 14px; /* align with bubble, not name label */
+}
+.pgallery-avatar.user {
+  background: linear-gradient(135deg, oklch(0.7 0.13 20), oklch(0.62 0.16 18));
+}
+.pgallery-avatar.bunny {
+  background: linear-gradient(135deg, oklch(0.78 0.06 250), oklch(0.7 0.08 245));
+}
+.pgallery-bubble-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0; /* let flex children wrap */
+  max-width: calc(100% - 34px);
+}
+.pgallery-bubble-row.user .pgallery-bubble-col {
+  align-items: flex-end;
+}
+.pgallery-bubble-name {
+  font-family: "Quicksand", "Inter", sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: oklch(0.5 0.04 40);
+  padding: 0 4px;
+}
+.pgallery-bubble-row.user .pgallery-bubble-name {
+  color: oklch(0.55 0.12 22);
+}
+.pgallery-bubble-row.bunny .pgallery-bubble-name {
+  color: oklch(0.5 0.06 245);
+}
+.pgallery-bubble {
   font-size: 13.5px;
   line-height: 1.5;
-  color: oklch(0.22 0.04 30);
+  padding: 9px 13px;
+  border-radius: 16px;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  /* Subtle paper feel — not a hard chat-app card, but enough
+     definition to read each turn as its own beat. */
+  box-shadow: 0 1px 2px oklch(0 0 0 / 0.06);
 }
-.pgallery-line .who {
-  font-size: 10px;
-  color: oklch(0.5 0.04 40);
-  margin-right: 6px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-weight: 600;
+.pgallery-bubble.user {
+  background: linear-gradient(
+    135deg,
+    oklch(0.94 0.05 25),
+    oklch(0.91 0.06 22)
+  );
+  color: oklch(0.28 0.06 25);
+  border-bottom-right-radius: 4px; /* tail toward the avatar */
 }
-.pgallery-line .what { display: inline; }
-.pgallery-line.user .who { color: oklch(0.5 0.12 25); }
+.pgallery-bubble.bunny {
+  background: oklch(0.99 0.008 80);
+  color: oklch(0.22 0.03 35);
+  border-bottom-left-radius: 4px; /* tail toward the avatar */
+  border: 1px solid oklch(0.92 0.015 60);
+}
 .pgallery-back-empty {
   color: oklch(0.5 0.04 40);
   font-size: 13px;
@@ -2542,11 +2720,30 @@ body.sleeping .wall {
   cursor: pointer;
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
+  transition:
+    transform 0.32s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background 0.2s ease,
+    color 0.2s ease;
 }
-.pgallery-heart .heart-glyph { font-size: 14px; line-height: 1; }
+.pgallery-heart:hover { transform: translateY(-2px) scale(1.04); }
+.pgallery-heart:active { transform: scale(0.94); transition-duration: 0.1s; }
+.pgallery-heart .heart-glyph {
+  font-size: 14px;
+  line-height: 1;
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
 .pgallery-heart.on {
   color: oklch(0.5 0.16 20);
   background: oklch(0.96 0.04 30 / 0.95);
+}
+.pgallery-heart.on .heart-glyph {
+  /* Heart pops once on toggle. */
+  animation: pgallery-heart-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes pgallery-heart-pop {
+  0%   { transform: scale(0.8); }
+  40%  { transform: scale(1.4); }
+  100% { transform: scale(1); }
 }
 
 .pgallery-remove,
@@ -2558,10 +2755,24 @@ body.sleeping .wall {
   cursor: pointer;
   background: oklch(0.97 0.02 60 / 0.85);
   color: oklch(0.4 0.04 40);
+  transition:
+    transform 0.32s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background 0.2s ease;
 }
+.pgallery-remove:hover,
+.pgallery-remove-confirm:hover { transform: translateY(-2px) scale(1.04); }
+.pgallery-remove:active,
+.pgallery-remove-confirm:active { transform: scale(0.94); transition-duration: 0.1s; }
 .pgallery-remove-confirm {
   background: oklch(0.55 0.18 25);
   color: white;
+  /* Confirm button enters with a wobble — emotional confirmation cue. */
+  animation: pgallery-confirm-in 0.46s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes pgallery-confirm-in {
+  0%   { opacity: 0; transform: scale(0.7) translateX(-12px); }
+  60%  { opacity: 1; transform: scale(1.08) translateX(2px); }
+  100% { opacity: 1; transform: scale(1) translateX(0); }
 }
 
 /* ----- PhotoFrame (used inside both carousel cards and enlarged view) --- */
