@@ -2,6 +2,7 @@
 
 import {
   notifyAudioSessionAfterRelease,
+  notifyAudioSessionBeforeAcquire,
   onAudioSessionAfterRelease,
 } from "./audio-session";
 
@@ -162,6 +163,12 @@ class AudioBus {
     if (this.warming) return;
     const silent = getSilentWav();
     if (!silent) return;
+    // Tell other audio sinks (esp. background music) that we're about to
+    // reconfigure the audio session — same signal getUserMedia uses.
+    // This makes music's pause-event swallow stay armed through any iOS
+    // duck/pause that happens while the silent loop (and later TTS)
+    // hold the element. Idempotent if already true.
+    notifyAudioSessionBeforeAcquire();
     try {
       this.warming = true;
       audio.loop = true;
@@ -277,6 +284,13 @@ class AudioBus {
 
     const token = ++this.currentToken;
     const effectiveMime = mimeType || "audio/mpeg";
+    // Bracket the TTS playback window with the same audio-session signal
+    // pair the mic uses. While this is true, the music hook swallows
+    // iOS-initiated pause events instead of dropping React state — so
+    // when iOS ducks the music for Bunny's voice, the music doesn't get
+    // permanently turned off in state and can resume cleanly when
+    // finish() fires the matching AfterRelease pulse.
+    notifyAudioSessionBeforeAcquire();
     audio.src = `data:${effectiveMime};base64,${audioBase64}`;
 
     return await new Promise<TtsPlayResult>((resolve) => {
