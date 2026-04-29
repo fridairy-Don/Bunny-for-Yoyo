@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { getFirstSessionTimestamp } from "../memory/session-store";
 
 export type Mote = {
   left: string;
@@ -36,16 +37,35 @@ function getTimeKey(hours: number): AmbientTimeKey {
   return "night";
 }
 
-function getDayNumber() {
+// "Day N" the family is on. Source of truth: the oldest started_at row in
+// bunny_sessions on Supabase — that way the count is the same on
+// localhost:3000, the Vercel preview URL, and on every device the family
+// uses. localStorage is a cache only: it lets the badge render instantly
+// on first paint while the Supabase fetch is in flight, and it also
+// covers the case where Supabase is unreachable or the family hasn't
+// recorded any session yet.
+const KEY_FIRST_SEEN_CACHE = "bunny:first_seen_v2";
+
+function computeDay(firstMs: number, nowMs: number): number {
+  return Math.max(1, Math.floor((nowMs - firstMs) / 86_400_000) + 1);
+}
+
+// Synchronous initial guess from cache. Falls back to "today" when there
+// is no cache yet so we never flash a stale value from the previous
+// (per-origin) localStorage key.
+function getDayNumberFromCache(): number {
   if (typeof window === "undefined") return 1;
-  const key = "bunny:first_seen";
   const now = Date.now();
-  const stored = window.localStorage.getItem(key);
-  const first = stored ? Number(stored) : now;
-  if (!stored) {
-    window.localStorage.setItem(key, String(now));
+  try {
+    const raw = window.localStorage.getItem(KEY_FIRST_SEEN_CACHE);
+    const first = raw ? Number(raw) : NaN;
+    if (Number.isFinite(first) && first > 0) {
+      return computeDay(first, now);
+    }
+  } catch {
+    // ignore localStorage errors
   }
-  return Math.max(1, Math.floor((now - first) / 86_400_000) + 1);
+  return 1;
 }
 
 export type AmbientState = {
@@ -84,8 +104,50 @@ export function useAmbient(): AmbientState {
     }
     setMotes(out);
     setTimeKey(getTimeKey(new Date().getHours()));
-    setDayNumber(getDayNumber());
+    // Instant paint from cache so the badge isn't blank for a tick.
+    setDayNumber(getDayNumberFromCache());
     setClientReady(true);
+
+    // Authoritative day count from Supabase, in the background.
+    let cancelled = false;
+    (async () => {
+      try {
+        const firstMs = await getFirstSessionTimestamp();
+        if (cancelled) return;
+        if (firstMs && Number.isFinite(firstMs)) {
+          setDayNumber(computeDay(firstMs, Date.now()));
+          if (typeof window !== "undefined") {
+            try {
+              window.localStorage.setItem(
+                KEY_FIRST_SEEN_CACHE,
+                String(firstMs),
+              );
+            } catch {
+              // quota / private mode — ignore.
+            }
+          }
+        } else if (typeof window !== "undefined") {
+          // No sessions yet — seed today as the family's first day so the
+          // counter starts ticking even before the first save-to-memory.
+          try {
+            const existing = window.localStorage.getItem(KEY_FIRST_SEEN_CACHE);
+            if (!existing) {
+              window.localStorage.setItem(
+                KEY_FIRST_SEEN_CACHE,
+                String(Date.now()),
+              );
+            }
+          } catch {
+            // ignore
+          }
+        }
+      } catch {
+        // Network / supabase issue — keep the cache-based value.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const copy = TIME_COPY[timeKey];

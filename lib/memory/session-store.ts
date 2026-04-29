@@ -415,6 +415,27 @@ export type SessionCard = {
   distilledIds: string[];
 };
 
+// Earliest `started_at` we have on record for this family. Used by the
+// ambient day-counter so "Day N" is computed from real first-meeting
+// data on the server, not per-domain localStorage (which would otherwise
+// reset to Day 1 each time the family loaded the app from a different
+// origin — localhost:3000 vs the deployed Vercel URL had been drifting
+// apart). Returns null when Supabase is unreachable or no sessions exist.
+export async function getFirstSessionTimestamp(): Promise<number | null> {
+  const sb = getSupabase();
+  if (!sb) return null;
+  const { data, error } = await sb
+    .from("bunny_sessions")
+    .select("started_at")
+    .eq("family_id", FAMILY_ID)
+    .order("started_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  const t = new Date(data.started_at).getTime();
+  return Number.isFinite(t) ? t : null;
+}
+
 export async function getAllSessions(limit = 60): Promise<SessionCard[]> {
   const sb = getSupabase();
   if (!sb) return [];
