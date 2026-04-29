@@ -1,6 +1,9 @@
 "use client";
 
-import { onAudioSessionAfterRelease } from "./audio-session";
+import {
+  notifyAudioSessionAfterRelease,
+  onAudioSessionAfterRelease,
+} from "./audio-session";
 
 // A tiny silent WAV (≈0.2s, 8kHz mono 8-bit). We play this on the TTS
 // HTMLAudioElement inside the user-gesture chain of the mic-stop tap, then
@@ -113,9 +116,23 @@ class AudioBus {
         const a = this.audio;
         if (!a) return;
         if (a.paused && a.src && !a.ended) {
+          // If we're mid-warmup (silent WAV looping) and iOS paused us,
+          // try the gentler retry path: play() first; if that fails,
+          // load() + play(). Without load(), the decoder can stay
+          // wedged from the audio-session flip.
           const result = a.play();
           if (result && typeof result.catch === "function") {
-            result.catch(() => undefined);
+            result.catch(() => {
+              try {
+                a.load();
+                const p2 = a.play();
+                if (p2 && typeof p2.catch === "function") {
+                  p2.catch(() => undefined);
+                }
+              } catch {
+                // ignore — this is a best-effort safety net.
+              }
+            });
           }
         }
       });
@@ -151,6 +168,14 @@ class AudioBus {
       audio.muted = false;
       audio.volume = 0.0001;
       audio.src = silent;
+      // iOS Safari sometimes needs an explicit load() before play() to
+      // wake the decoder, especially right after an audio-session
+      // category flip. Cheap on every other platform.
+      try {
+        audio.load();
+      } catch {
+        // ignore — element will still try to play below.
+      }
       const p = audio.play();
       if (p && typeof p.catch === "function") {
         // DO NOT clear `warming` on rejection. Promise rejection from
@@ -164,6 +189,28 @@ class AudioBus {
       }
     } catch {
       this.warming = false;
+    }
+  }
+
+  // Idempotent "are we still warmed up?" nudge — call from inside a fresh
+  // user gesture (e.g. mic-stop tap) to make sure the silent WAV is
+  // *actually* playing before we rely on the src-swap trick. iPad PWA
+  // sometimes pauses the silent loop during the PlayAndRecord session
+  // and then-after release leaves it paused even though we already
+  // notified subscribers — this re-poke catches that.
+  ensureWarmupPlaying(): void {
+    const audio = this.audio;
+    if (!audio) return;
+    if (!this.warming) return;
+    if (!audio.paused) return;
+    if (!audio.src) return;
+    try {
+      const p = audio.play();
+      if (p && typeof p.catch === "function") {
+        p.catch(() => undefined);
+      }
+    } catch {
+      // ignore — safety net only.
     }
   }
 
@@ -186,6 +233,12 @@ class AudioBus {
     } catch {
       // ignore — element will be replaced on next playTts.
     }
+    // iOS PWA quirk: while the TTS audio element was playing (even at
+    // near-zero volume during warmup), iOS may have ducked or paused
+    // the background music. Now that TTS is done, fire the after-release
+    // pulse so the music player can resume itself. This is the missing
+    // wakeup that left iPad users with silent music after Bunny spoke.
+    notifyAudioSessionAfterRelease();
   }
 
   async playTts(
@@ -214,6 +267,14 @@ class AudioBus {
       this.stopTts();
     }
 
+    // Capture warmup state for tryPlay. When the silent loop is *actually*
+    // playing (not paused) at swap time, iOS continues playback through
+    // the src change without requiring a fresh user gesture. When it's
+    // paused — which iPad PWA can do during the audio-session flip even
+    // after our resume nudges — the src swap leaves us paused. tryPlay
+    // below uses this hint to be more aggressive about retry.
+    const warmupWasLive = wasWarming && !audio.paused;
+
     const token = ++this.currentToken;
     const effectiveMime = mimeType || "audio/mpeg";
     audio.src = `data:${effectiveMime};base64,${audioBase64}`;
@@ -237,6 +298,15 @@ class AudioBus {
         resolved = true;
         cleanup();
         if (onProgress) onProgress(durationMs, durationMs);
+        // Wake music: iOS PWA may have ducked/paused background music
+        // while TTS played. Fire the after-release pulse so the music
+        // hook gets a chance to play() again. Idempotent — if music
+        // is already playing this is a no-op.
+        try {
+          notifyAudioSessionAfterRelease();
+        } catch {
+          // ignore — best effort.
+        }
         resolve({ durationMs });
       };
 
@@ -287,11 +357,24 @@ class AudioBus {
               const p2 = audio.play();
               if (p2 && typeof p2.catch === "function") {
                 p2.catch(() => {
-                  // Both attempts failed. Resolve as a 0-length
-                  // playback so the conversation flow keeps moving —
-                  // the caller will fall back to its own browser-
-                  // speech path.
-                  finish(0);
+                  // Two synchronous attempts failed. Last resort:
+                  // schedule a delayed retry. iOS PWA sometimes
+                  // accepts play() once the audio-session category
+                  // has fully settled (~200-500ms after release).
+                  // Without this third try, iPad users hear silence
+                  // from Bunny even when STT/LLM/TTS all succeed.
+                  setTimeout(() => {
+                    if (resolved) return;
+                    if (this.currentToken !== token) return;
+                    try {
+                      const p3 = audio.play();
+                      if (p3 && typeof p3.catch === "function") {
+                        p3.catch(() => finish(0));
+                      }
+                    } catch {
+                      finish(0);
+                    }
+                  }, 350);
                 });
               }
             } catch {
@@ -300,6 +383,18 @@ class AudioBus {
           });
         }
       };
+      // When the silent warmup wasn't actually playing at swap time, the
+      // src change probably left us paused too. Force a fresh load() to
+      // wake the decoder before the first play() attempt — that's the
+      // path that actually unblocks iPad PWA after the gesture window
+      // has expired during the STT+LLM+TTS roundtrip.
+      if (wasWarming && !warmupWasLive) {
+        try {
+          audio.load();
+        } catch {
+          // ignore — tryPlay will try again.
+        }
+      }
       tryPlay();
     });
   }
