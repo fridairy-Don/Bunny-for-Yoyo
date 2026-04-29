@@ -113,23 +113,14 @@ export function useMusicPlayer(initialVolume = 0.2): MusicPlayerApi {
       setAudioError(false);
     });
     audio.addEventListener("pause", () => {
-      // We get a "pause" event from THREE distinct sources:
-      //   1. the user clicking play/pause (we want to honor it)
-      //   2. iOS interrupting because the mic took over the session
-      //      (we must NOT drop intent — the after-release pulse will
-      //      re-issue play())
-      //   3. iOS ducking/pausing because the TTS audio bus started
-      //      playing (also must not drop intent — the audio bus emits
-      //      its own after-release pulse on TTS end so music resumes)
-      //
-      // Cases 2 and 3 both happen *without* setPlaying(false) being
-      // called first, so intentRef.current is still TRUE. Case 1 is
-      // driven by setPlaying(false) → React commit → intentRef.current
-      // goes false → THEN the [playing] effect calls audio.pause(). By
-      // the time the pause event fires, intentRef.current is already
-      // false. So gating on intentRef === true covers cases 2 + 3
-      // without breaking case 1.
-      if (intentRef.current) return;
+      // Don't drop user-intent if iOS just paused us because something
+      // else took over the audio session — both getUserMedia (mic) and
+      // the TTS audio bus's silent-WAV warmup / TTS playback fire the
+      // BeforeAcquire signal, which sets sessionInterruptedRef=true.
+      // After the corresponding AfterRelease pulse, the flag clears and
+      // user-driven pauses resume working. This keeps lock-screen-style
+      // OS pause events honored if MediaSession ever wires them up.
+      if (sessionInterruptedRef.current) return;
       setPlaying(false);
     });
     audio.addEventListener("error", () => {
