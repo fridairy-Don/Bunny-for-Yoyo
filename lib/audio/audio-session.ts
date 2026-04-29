@@ -56,14 +56,19 @@ function fireRelease() {
 //      session category back to Playback. Resume calls that fire too
 //      early are accepted but silently ignored.
 //
-// We satisfy both by firing handlers THREE times in quick succession:
-// once synchronously (riding the click's user activation), once at
-// 80ms (after iOS has flipped the category), and once at 240ms (catches
-// the rare slow flip on older iPads). Handlers are idempotent — a
-// duplicate audio.play() / ctx.resume() is a no-op when the resource
-// is already running.
+// We satisfy both by firing handlers FIVE times in quick succession:
+// once synchronously (riding the click's user activation), then at
+// 80ms / 240ms / 600ms / 1200ms. The early fires catch fast iPads;
+// the later fires catch slow ones AND the case where iOS PWA's
+// audio session takes longer to flip back than Safari proper.
+// Handlers are idempotent — a duplicate audio.play() / ctx.resume()
+// is a no-op when the resource is already running, so over-firing
+// is harmless. Under-firing means silent failure, which is what
+// the user reported on iPad standalone PWA — so we err generously.
 export function notifyAudioSessionAfterRelease(): void {
   fireRelease();
   setTimeout(fireRelease, 80);
   setTimeout(fireRelease, 240);
+  setTimeout(fireRelease, 600);
+  setTimeout(fireRelease, 1200);
 }

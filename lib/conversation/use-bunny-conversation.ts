@@ -74,6 +74,15 @@ export function useBunnyConversation(
 
     if (status === "idle") {
       try {
+        // Prime the TTS audio bus BEFORE getUserMedia opens the mic.
+        // This puts the shared HTMLAudioElement into "actively playing"
+        // (silent WAV loop at near-zero volume) while the iOS audio
+        // session is still in clean Playback mode. When iOS flips the
+        // session to PlayAndRecord for the mic, our element survives
+        // the flip far more reliably than if we'd primed *after* the
+        // flip — which is what was leaving Bunny silent on iPad PWA.
+        // Idempotent: a no-op on subsequent taps after the first.
+        audioBus.primeForPlayback();
         await recorderRef.current.start();
         controller.beginListening();
         setStatus("listening");
@@ -123,9 +132,19 @@ export function useBunnyConversation(
       // When the real TTS arrives later, playTts() just swaps src on
       // the still-playing TTS element — no fresh play() call needed
       // (which iOS would reject outside the gesture).
+      // The first-tap path already primed the audio bus (silent WAV
+      // loop). iOS PWA may have paused the loop while the mic held
+      // PlayAndRecord — this is idempotent so call it again as a safety
+      // net, then explicitly poke it back to play() inside the gesture.
       audioBus.primeForPlayback();
+      audioBus.ensureWarmupPlaying();
       recorderRef.current.releaseSession();
       notifyAudioSessionAfterRelease();
+      // Second poke — after the synchronous releaseSession + the first
+      // notify pulse, the element may have just received iOS's
+      // "session-flipped-back" signal. Re-confirm it's actually playing
+      // before we hand off to STT+LLM+TTS (which expires the gesture).
+      audioBus.ensureWarmupPlaying();
 
       setStatus("transcribing");
       // Drop "listening" interaction state the instant Yoyo taps stop — the

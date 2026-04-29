@@ -113,10 +113,23 @@ export function useMusicPlayer(initialVolume = 0.2): MusicPlayerApi {
       setAudioError(false);
     });
     audio.addEventListener("pause", () => {
-      // Don't drop the user-intent state if iOS just paused us because
-      // the mic took over the audio session. The session-release handler
-      // below will flip playback back on.
-      if (sessionInterruptedRef.current) return;
+      // We get a "pause" event from THREE distinct sources:
+      //   1. the user clicking play/pause (we want to honor it)
+      //   2. iOS interrupting because the mic took over the session
+      //      (we must NOT drop intent — the after-release pulse will
+      //      re-issue play())
+      //   3. iOS ducking/pausing because the TTS audio bus started
+      //      playing (also must not drop intent — the audio bus emits
+      //      its own after-release pulse on TTS end so music resumes)
+      //
+      // Cases 2 and 3 both happen *without* setPlaying(false) being
+      // called first, so intentRef.current is still TRUE. Case 1 is
+      // driven by setPlaying(false) → React commit → intentRef.current
+      // goes false → THEN the [playing] effect calls audio.pause(). By
+      // the time the pause event fires, intentRef.current is already
+      // false. So gating on intentRef === true covers cases 2 + 3
+      // without breaking case 1.
+      if (intentRef.current) return;
       setPlaying(false);
     });
     audio.addEventListener("error", () => {
@@ -250,6 +263,11 @@ export function useMusicPlayer(initialVolume = 0.2): MusicPlayerApi {
     const p = audio.play();
     if (p && typeof p.catch === "function") {
       p.catch(() => {
+        // If we're in the middle of an audio-session flip (mic just
+        // grabbed it, or TTS just ended and is releasing it), play()
+        // can transiently reject. The after-release pulse will retry
+        // for us — DO NOT drop user intent or surface an error here.
+        if (sessionInterruptedRef.current) return;
         setPlaying(false);
         setAudioError(true);
       });
