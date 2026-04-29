@@ -1,11 +1,11 @@
 "use client";
 
 import { MicIcon } from "../icons";
+import { BunnyRig } from "./bunny-rig";
 
 type Props = {
-  bunnyImage: string;
   isListening: boolean;
-  onBunnyPress: (e: React.PointerEvent<HTMLImageElement>) => void;
+  onBunnyPress: (e: React.PointerEvent<HTMLDivElement>) => void;
   onMicClick: () => void;
   caption: React.ReactNode;
 };
@@ -15,7 +15,6 @@ type Props = {
 // ReactNode so that page.tsx can keep the karaoke word logic co-located
 // with the conversation state.
 export function BunnyStage({
-  bunnyImage,
   isListening,
   onBunnyPress,
   onMicClick,
@@ -30,14 +29,14 @@ export function BunnyStage({
       <div className="bunny-wrap">
         <div className="bunny-frame">
           <div className="bunny-halo" />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          <div
             className="bunny"
-            src={bunnyImage}
-            alt="Bunny"
-            draggable={false}
             onPointerDown={onBunnyPress}
-          />
+            role="button"
+            aria-label="Bunny"
+          >
+            <BunnyRig />
+          </div>
           <div className="shadow" />
         </div>
       </div>

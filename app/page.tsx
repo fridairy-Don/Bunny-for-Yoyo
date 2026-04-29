@@ -86,7 +86,7 @@ export default function Home() {
     },
   );
 
-  const { bunnyImage, isListening, handleBunnyPress } = companion;
+  const { isListening, handleBunnyPress } = companion;
   const {
     status,
     subtitle,
@@ -461,7 +461,6 @@ export default function Home() {
       />
 
       <BunnyStage
-        bunnyImage={bunnyImage}
         isListening={isListening}
         onBunnyPress={handleBunnyPress}
         onMicClick={onClickMic}
