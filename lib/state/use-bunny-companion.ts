@@ -1,226 +1,98 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  BUNNY_IMAGES,
-  pickClickReaction,
-  randomBlinkDelay,
-  type BunnyVisualState,
-  type InteractionState,
-  type MomentaryState,
-} from "../config/bunny";
+import { useCallback, useRef, useState } from "react";
+import { inferSpeakAction } from "../conversation/infer-speak-action";
+import type { BunnyBaseState } from "../config/bunny-videos";
+
+// ---------------------------------------------------------------------------
+// useBunnyCompanion
+// ---------------------------------------------------------------------------
+// Drives the bunny's high-level visual state (idle / listening / speaking /
+// happy_speaking) for the BunnyVideoPlayer.
+//
+// The public API is the same shape as before so that useBunnyConversation
+// and page.tsx didn't have to change. Internally we no longer track
+// fine-grained rig states — the videos carry the entire visual story now.
 
 const CLICK_COOLDOWN_MS = 400;
 
-export function useBunnyCompanion() {
-  const [bunnyState, setBunnyState] = useState<BunnyVisualState>("idle");
-  const [interactionState, setInteractionState] = useState<InteractionState>("idle");
-  const [talkFrame, setTalkFrame] = useState(false);
+export type BunnyInteractionState = "idle" | "listening" | "speaking";
 
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const speakingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+export type StartSpeakingHint = { text?: string };
+
+export function useBunnyCompanion() {
+  const [videoState, setVideoState] = useState<BunnyBaseState>("idle");
+  const [interactionState, setInteractionState] =
+    useState<BunnyInteractionState>("idle");
+
+  // Player-side reaction trigger — page.tsx wires this to the
+  // BunnyVideoPlayer ref. handleBunnyPress invokes whatever's bound here.
+  const reactionTriggerRef = useRef<(() => void) | null>(null);
   const clickCooldownUntilRef = useRef<number>(0);
 
-  const clearTimers = () => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
+  const setReactionTrigger = useCallback(
+    (fn: (() => void) | null) => {
+      reactionTriggerRef.current = fn;
+    },
+    [],
+  );
 
-    if (speakingIntervalRef.current) {
-      clearInterval(speakingIntervalRef.current);
-      speakingIntervalRef.current = null;
-    }
-  };
-
-  const returnToIdle = () => {
-    clearTimers();
-    setTalkFrame(false);
-    setBunnyState("idle");
-    setInteractionState("idle");
-  };
-
-  const triggerMomentary = (nextState: MomentaryState, duration = 650) => {
-    clearTimers();
-    setTalkFrame(false);
-    setBunnyState(nextState);
-    setInteractionState("idle");
-
-    timeoutRef.current = setTimeout(() => {
-      setBunnyState("idle");
-      timeoutRef.current = null;
-    }, duration);
-  };
-
-  const triggerBunnyReaction = (nextState: MomentaryState, duration = 650) => {
-    if (speakingIntervalRef.current) {
-      clearInterval(speakingIntervalRef.current);
-      speakingIntervalRef.current = null;
-    }
-
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-
-    setTalkFrame(false);
-    setBunnyState(nextState);
-
-    timeoutRef.current = setTimeout(() => {
-      setBunnyState("idle");
-      timeoutRef.current = null;
-    }, duration);
-  };
-
-  const triggerListening = () => {
-    clearTimers();
-    setTalkFrame(false);
-    setBunnyState("ear_react");
+  // ----- state transitions ------------------------------------------------
+  const beginListening = useCallback(() => {
     setInteractionState("listening");
-  };
+    setVideoState("listening");
+  }, []);
 
-  const startSpeaking = () => {
-    clearTimers();
+  const startSpeaking = useCallback((hint?: StartSpeakingHint) => {
+    const action = inferSpeakAction(hint?.text);
     setInteractionState("speaking");
-    setBunnyState("speaking");
-    setTalkFrame(true);
+    setVideoState(action);
+  }, []);
 
-    speakingIntervalRef.current = setInterval(() => {
-      setTalkFrame((current) => !current);
-    }, 200);
-  };
+  const returnToIdle = useCallback(() => {
+    setInteractionState("idle");
+    setVideoState("idle");
+  }, []);
 
-  const speakForDuration = (duration = 2000) => {
-    startSpeaking();
-    timeoutRef.current = setTimeout(() => {
-      returnToIdle();
-    }, duration);
-  };
+  // Legacy hook — preserved as a no-op so existing call sites don't have
+  // to change. The post-speak "happy flourish" the rig used to do is
+  // unnecessary now that the speaking loop already conveys emotion.
+  const showMomentaryReaction = useCallback(
+    (_state: "happy" | "ear_react" | "blink", _duration?: number) => {
+      // intentionally empty
+    },
+    [],
+  );
 
-  // Double-blink: eyes close → open briefly → close again, occasionally a third time.
-  const triggerDoubleBlink = () => {
-    clearTimers();
-    setTalkFrame(false);
-    setBunnyState("blink");
-
-    // first blink → idle → second blink → maybe third → idle
-    timeoutRef.current = setTimeout(() => {
-      setBunnyState("idle");
-      timeoutRef.current = setTimeout(() => {
-        setBunnyState("blink");
-        const thirdRoll = Math.random();
-        timeoutRef.current = setTimeout(() => {
-          if (thirdRoll < 0.2) {
-            setBunnyState("idle");
-            timeoutRef.current = setTimeout(() => {
-              setBunnyState("blink");
-              timeoutRef.current = setTimeout(() => {
-                setBunnyState("idle");
-                timeoutRef.current = null;
-              }, 140);
-            }, 90);
-          } else {
-            setBunnyState("idle");
-            timeoutRef.current = null;
-          }
-        }, 150);
-      }, 90);
-    }, 150);
-  };
-
-  const triggerEarThenHappy = () => {
-    clearTimers();
-    setTalkFrame(false);
-    setBunnyState("ear_react");
-    timeoutRef.current = setTimeout(() => {
-      setBunnyState("happy");
-      timeoutRef.current = setTimeout(() => {
-        setBunnyState("idle");
-        timeoutRef.current = null;
-      }, 650);
-    }, 320);
-  };
-
-  const handleBunnyPress = () => {
-    if (interactionState === "speaking") {
-      return;
-    }
-
-    // Cool-down: ignore rapid repeated taps so reactions don't stack oddly.
+  // ----- click handler ----------------------------------------------------
+  // Reactions now live INSIDE the BunnyVideoPlayer (via its own ear/body
+  // hotspots). This handler stays as a generic "child tapped the bunny"
+  // notification: page.tsx might want it for analytics or for waking the
+  // bunny from sleep. We deliberately do NOT call reactionTriggerRef here
+  // — doing so would double-fire because the player already played the
+  // reaction internally.
+  const handleBunnyPress = useCallback(() => {
+    if (interactionState === "speaking") return;
     const now = Date.now();
-    if (now < clickCooldownUntilRef.current) {
-      return;
-    }
+    if (now < clickCooldownUntilRef.current) return;
     clickCooldownUntilRef.current = now + CLICK_COOLDOWN_MS;
-
-    if (interactionState === "listening") {
-      // While Yoyo is recording, Bunny holds ear_react ("I'm listening").
-      setBunnyState("ear_react");
-      return;
-    }
-
-    const reaction = pickClickReaction();
-    if (reaction === "blink") {
-      triggerDoubleBlink();
-      clickCooldownUntilRef.current = now + 700;
-      return;
-    }
-    if (reaction === "happy") {
-      triggerBunnyReaction("happy", 780);
-      clickCooldownUntilRef.current = now + 900;
-      return;
-    }
-    if (reaction === "ear_then_happy") {
-      triggerEarThenHappy();
-      clickCooldownUntilRef.current = now + 1100;
-      return;
-    }
-    // default: ear_react
-    triggerBunnyReaction("ear_react", 800);
-    clickCooldownUntilRef.current = now + 900;
-  };
-
-  useEffect(() => {
-    if (bunnyState !== "idle" || interactionState !== "idle") {
-      return;
-    }
-
-    const blinkTimer = setTimeout(() => {
-      triggerDoubleBlink();
-    }, randomBlinkDelay());
-
-    return () => clearTimeout(blinkTimer);
-  }, [bunnyState, interactionState]);
-
-  useEffect(() => {
-    return () => clearTimers();
-  }, []);
-
-  useEffect(() => {
-    Object.values(BUNNY_IMAGES).forEach((src) => {
-      const image = new window.Image();
-      image.src = src;
-    });
-  }, []);
-
-  const bunnyImage = useMemo(() => {
-    if (bunnyState === "speaking") {
-      return talkFrame ? BUNNY_IMAGES.speak : BUNNY_IMAGES.idle;
-    }
-
-    return BUNNY_IMAGES[bunnyState];
-  }, [bunnyState, talkFrame]);
+    // intentionally no reactionTrigger call — player owns reactions.
+  }, [interactionState]);
 
   return {
-    bunnyImage,
-    bunnyState,
+    // For BunnyVideoPlayer (read by bunny-stage / page):
+    videoState,
+    setReactionTrigger,
+
+    // For useBunnyConversation (the BunnyController interface):
+    beginListening,
+    startSpeaking,
+    returnToIdle,
+    showMomentaryReaction,
+
+    // For page.tsx UI state + click routing:
     interactionState,
     isListening: interactionState === "listening",
     handleBunnyPress,
-    beginListening: triggerListening,
-    startSpeaking,
-    speakForDuration,
-    returnToIdle,
-    showMomentaryReaction: triggerMomentary,
   };
 }

@@ -76,6 +76,14 @@ function getSilentWav(): string {
 
 type TtsPlayOptions = {
   onProgressMs?: (elapsedMs: number, durationMs: number) => void;
+  /**
+   * Fires the first moment the TTS audio is actually audible — i.e.
+   * the HTMLAudioElement's `playing` event after src swap + decode +
+   * play(). Lets the bunny's mouth animation begin in lockstep with
+   * sound rather than the (often hundreds-of-ms-earlier) text reply.
+   * Guaranteed to fire at most once per playTts call.
+   */
+  onPlaybackStart?: () => void;
 };
 
 type TtsPlayResult = {
@@ -296,7 +304,32 @@ class AudioBus {
     return await new Promise<TtsPlayResult>((resolve) => {
       let raf: number | null = null;
       let resolved = false;
+      let playbackStartFired = false;
       const onProgress = options.onProgressMs;
+      const onPlaybackStart = options.onPlaybackStart;
+
+      const firePlaybackStart = () => {
+        if (playbackStartFired) return;
+        if (this.currentToken !== token) return;
+        playbackStartFired = true;
+        if (onPlaybackStart) {
+          try {
+            onPlaybackStart();
+          } catch {
+            // ignore — user-supplied callback errors must not break TTS.
+          }
+        }
+      };
+
+      const onPlaying = () => {
+        // The `playing` event is the first reliable "audio is now
+        // audible" signal across browsers — it fires after the data URI
+        // is decoded AND the element has begun emitting samples. We
+        // also use this as the fallback start trigger if some browser
+        // skips the playing event (rare): the rAF tick below also
+        // triggers it the first time currentTime advances.
+        firePlaybackStart();
+      };
 
       const cleanup = () => {
         if (raf != null) {
@@ -305,6 +338,7 @@ class AudioBus {
         }
         audio.removeEventListener("ended", onEnded);
         audio.removeEventListener("error", onError);
+        audio.removeEventListener("playing", onPlaying);
       };
 
       const finish = (durationMs: number) => {
@@ -337,6 +371,7 @@ class AudioBus {
 
       audio.addEventListener("ended", onEnded);
       audio.addEventListener("error", onError);
+      audio.addEventListener("playing", onPlaying);
 
       const tick = () => {
         if (resolved) return;
@@ -354,6 +389,12 @@ class AudioBus {
           if (Number.isFinite(dur) && dur > 0) {
             onProgress(audio.currentTime * 1000, dur * 1000);
           }
+        }
+        // Fallback path for the rare browser that swallows the
+        // `playing` event: once currentTime has advanced past zero
+        // we know audio is audible.
+        if (!playbackStartFired && audio.currentTime > 0 && !audio.paused) {
+          firePlaybackStart();
         }
         raf = requestAnimationFrame(tick);
       };

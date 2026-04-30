@@ -34,6 +34,7 @@ import { Ambient } from "../components/chrome/ambient";
 import { HeaderChrome } from "../components/chrome/header-chrome";
 import { CornerControls } from "../components/corner/corner-controls";
 import { BunnyStage } from "../components/stage/bunny-stage";
+import type { BunnyVideoPlayerHandle } from "../components/stage/bunny-video-player";
 import { CaptionZone } from "../components/stage/caption-zone";
 import { ChatlogPanel } from "../components/chatlog/chatlog-panel";
 import { PolaroidWall } from "../components/wall/polaroid-wall";
@@ -86,7 +87,18 @@ export default function Home() {
     },
   );
 
-  const { isListening, handleBunnyPress } = companion;
+  const { isListening, handleBunnyPress, videoState, setReactionTrigger } =
+    companion;
+
+  // Player ref — bunny-stage forwards this down to BunnyVideoPlayer.
+  // We bind its `triggerRandomReaction` into the companion so that
+  // handleBunnyPress (which already handles cooldown + mic-state guards)
+  // can fire a reaction without bunny-stage knowing about either side.
+  const bunnyPlayerRef = useRef<BunnyVideoPlayerHandle | null>(null);
+  useEffect(() => {
+    setReactionTrigger(() => bunnyPlayerRef.current?.triggerRandomReaction());
+    return () => setReactionTrigger(null);
+  }, [setReactionTrigger]);
   const {
     status,
     subtitle,
@@ -461,7 +473,9 @@ export default function Home() {
       />
 
       <BunnyStage
+        ref={bunnyPlayerRef}
         isListening={isListening}
+        videoState={videoState}
         onBunnyPress={handleBunnyPress}
         onMicClick={onClickMic}
         caption={captionBlock}
