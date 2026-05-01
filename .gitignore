@@ -2,7 +2,9 @@
 node_modules
 .next
 .next-dev
+.next-dev-3030
 .next-build
+.playwright-mcp
 .vercel
 .env
 .env.local
@@ -11,3 +13,6 @@ node_modules
 tsconfig.tsbuildinfo
 .claude/
 certificates/
+
+# dev/debug screenshots dropped at the repo root by playwright/MCP tools
+/*.png

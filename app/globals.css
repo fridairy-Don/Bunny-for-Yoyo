@@ -248,14 +248,191 @@ button {
 .bunny {
   width: 100%;
   height: 100%;
-  display: block;
-  object-fit: contain;
+  display: grid;
+  place-items: center;
   filter: drop-shadow(0 30px 40px oklch(0.35 0.04 30 / 0.18));
   transform-origin: 50% 95%;
   animation: breathe 5.2s ease-in-out infinite;
   user-select: none;
-  -webkit-user-drag: none;
+  -webkit-user-select: none;
   cursor: pointer;
+}
+.bunny .bunny-rig {
+  pointer-events: none;
+}
+
+/* Video-driven bunny — drop-in replacement for .bunny-rig.
+   The wrapper fills the .bunny slot (which is itself sized by
+   .bunny-frame at 934/1040 aspect). All clips are alpha-channel
+   VP9 webms with the bunny matted out — the page paper shows
+   through the transparent pixels directly. Three CSS variables
+   let callers nudge the visible bunny; defaults live as
+   `var(..., default)` fallbacks at the consume site so values
+   inherited from a parent actually override them. */
+.bunny-video {
+  /* Default scale + per-clip translate values calibrated as a pair so
+     scaling up keeps the bunny's feet pinned at ~90% of container
+     height. To change the size, update --bunny-video-scale-default AND
+     re-derive the per-clip --bunny-clip-feet-y values (formula in the
+     selectors below). */
+  --bunny-video-scale-default: 1.85;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  /* overflow visible — at scales > 1, the alpha webm's transparent
+     region (and the bunny's ears) extend past the container edges.
+     Clipping that here was cropping the floppy ears off. The page
+     paper bg shows through fine since pixels outside the bunny are
+     transparent. */
+  overflow: visible;
+  border-radius: 0;
+  pointer-events: auto;
+  /* All clips are alpha-channel VP9 webms — the bunny is matted out and
+     the surrounding pixels are fully transparent. The page paper shows
+     through directly. No backdrop color, no edge mask needed. */
+  background-color: transparent;
+}
+
+/* Soft ground shadow under the bunny's feet. Pinned to ~91% of the
+   container so it sits right beneath wherever the feet land (which the
+   per-clip --bunny-clip-feet-y math also targets at 90%). The ellipse
+   is short and squat so it reads as cast shadow, not a halo. Sits at
+   z-index 0 — below the video stack (z-index 1) and reactions (z-index
+   2) but above the page background. */
+.bunny-video::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 91%;
+  width: 26%;
+  height: 4.5%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(
+    ellipse closest-side at 50% 50%,
+    oklch(0.3 0.04 30 / 0.32) 0%,
+    oklch(0.3 0.04 30 / 0.18) 45%,
+    transparent 100%
+  );
+  filter: blur(3px);
+  pointer-events: none;
+  z-index: 0;
+  /* Subtle breathing — synced (5.2s, same as the .bunny breathe loop)
+     so the shadow shrinks slightly when the bunny rises. */
+  animation: shadowBreathe 5.2s ease-in-out infinite;
+}
+@keyframes shadowBreathe {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.95;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(0.93);
+    opacity: 0.82;
+  }
+}
+.bunny-video__layer {
+  /* `contain` (not cover) — every clip's full frame is visible, no
+     ear/foot cropping. The horizontal letterbox area is just transparent
+     (alpha webms) so the page paper shows through. Per-clip translate-Y
+     values below pin the bunny's FEET to the same target screen Y across
+     every clip; without that, the AI-generated frames place feet at
+     slightly different vertical positions and state changes read as a
+     vertical bobble. */
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: 50% 50%;
+  transform-origin: 50% 100%;
+  /* Per-clip feet calibration sums with the optional global slider. */
+  transform: translate(
+      var(--bunny-video-offset-x, 0%),
+      calc(
+        var(--bunny-video-offset-y, 0%) + var(--bunny-clip-feet-y, 0%)
+      )
+    )
+    scale(var(--bunny-video-scale, var(--bunny-video-scale-default, 1.85)));
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Per-clip feet alignment — derived from sampling each cutout webm's
+   first frame (the lowest opaque pixel y in the source). Values
+   calibrated for the default scale 1.85; formula:
+     Y% = 100 × (target_pct − 1 + scale × (1 − feet_pct_in_source))
+   with target_pct = 0.9 (feet at ~90% of container height). All clips
+   end with feet at the same screen position, so state changes don't
+   bobble the bunny up and down. Numbers come from probing the webms
+   with ffmpeg + PIL. If you change --bunny-video-scale-default, you
+   MUST regenerate every value below. */
+.bunny-video__layer[data-loop-id="idle"] {
+  /* feet at 71.04% of source */
+  --bunny-clip-feet-y: 43.6%;
+}
+.bunny-video__layer[data-loop-id="listening"] {
+  /* feet at 68.02% of source */
+  --bunny-clip-feet-y: 49.2%;
+}
+.bunny-video__layer[data-loop-id="listening2"] {
+  /* feet at 68.12% of source */
+  --bunny-clip-feet-y: 49.0%;
+}
+.bunny-video__layer[data-loop-id="speaking"] {
+  /* feet at 68.44% of source */
+  --bunny-clip-feet-y: 48.4%;
+}
+.bunny-video__layer[data-loop-id="happy_speaking"] {
+  /* feet at 68.12% of source */
+  --bunny-clip-feet-y: 49.0%;
+}
+.bunny-video__layer[data-reaction-id="touch-happy"] {
+  /* feet at 68.07% of source */
+  --bunny-clip-feet-y: 49.1%;
+}
+.bunny-video__layer[data-reaction-id="touch-playful"],
+.bunny-video__layer[data-reaction-id="touch-ticklish"] {
+  /* feet at 68.23% of source */
+  --bunny-clip-feet-y: 48.8%;
+}
+.bunny-video__layer[data-reaction-id="touch-ear"] {
+  /* feet at 69.84% of source */
+  --bunny-clip-feet-y: 45.8%;
+}
+
+.bunny-video__layer {
+  /* Short opacity flip — fast cuts read as confident state changes,
+     long fades make pose mismatch register as ghosting. */
+  transition: opacity 120ms ease-out;
+  z-index: 1;
+}
+.bunny-video__reaction {
+  z-index: 2;
+}
+
+/* Single invisible click hotspot covering the whole bunny silhouette
+   from ear-tip to feet. Any tap inside this zone fires a random
+   reaction. Pointer-events on so it catches the click; visual
+   presence zero. */
+.bunny-video__hotspot {
+  position: absolute;
+  pointer-events: auto;
+  cursor: pointer;
+  background: transparent;
+  z-index: 5;
+  -webkit-tap-highlight-color: transparent;
+  /* Spans from ~10% (well above the ear tops at scale 1.85) down to
+     ~5% above the feet shadow. Negative left/right extend the zone
+     past the container edges so floppy ears overflowing the
+     `.bunny-video` box (now `overflow: visible`) still register taps.
+     Container parents have no overflow:hidden so the extra hit area
+     is reachable. */
+  top: 10%;
+  bottom: 5%;
+  left: -12%;
+  right: -12%;
 }
 @keyframes breathe {
   0%,
@@ -266,30 +443,6 @@ button {
     transform: scale(1.015) translateY(-4px);
   }
 }
-.shadow {
-  position: absolute;
-  bottom: -6%;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 70%;
-  height: 26px;
-  border-radius: 50%;
-  background: radial-gradient(50% 50% at 50% 50%, oklch(0.35 0.04 30 / 0.18), transparent 70%);
-  filter: blur(3px);
-  animation: shadowBreathe 5.2s ease-in-out infinite;
-}
-@keyframes shadowBreathe {
-  0%,
-  100% {
-    transform: translateX(-50%) scale(1);
-    opacity: 0.9;
-  }
-  50% {
-    transform: translateX(-50%) scale(0.94);
-    opacity: 0.8;
-  }
-}
-
 /* ---- live caption ---- */
 .caption-zone {
   grid-row: 3;
@@ -418,10 +571,10 @@ button {
   border-radius: 50%;
   background: radial-gradient(60% 60% at 50% 40%, oklch(1 0 0 / 0.95), oklch(0.97 0.015 70));
   border: 1px solid oklch(0.85 0.02 50 / 0.7);
-  box-shadow:
-    0 1px 0 oklch(1 0 0 / 0.9) inset,
-    0 18px 40px oklch(0.35 0.04 30 / 0.14),
-    0 2px 6px oklch(0.35 0.04 30 / 0.08);
+  /* Inner highlight only — the dark drop shadow underneath was reading
+     as a halo behind the mic, which conflicted with the bunny's own
+     ground shadow above it. */
+  box-shadow: 0 1px 0 oklch(1 0 0 / 0.9) inset;
   display: grid;
   place-items: center;
   cursor: pointer;
@@ -457,9 +610,10 @@ button {
 }
 .mic.listening {
   border-color: oklch(0.85 0.08 10 / 0.8);
+  /* Inner highlight + rose ring only — the dropped halo behind was
+     reading as a stray shadow next to the bunny's ground shadow. */
   box-shadow:
     0 1px 0 oklch(1 0 0 / 0.9) inset,
-    0 18px 40px oklch(0.78 0.12 10 / 0.22),
     0 0 0 6px oklch(0.78 0.12 10 / 0.08);
 }
 .mic.listening svg {
@@ -2160,7 +2314,6 @@ body.sleeping .wall {
   .mic.listening {
     box-shadow:
       0 1px 0 oklch(1 0 0 / 0.9) inset,
-      0 22px 50px oklch(0.78 0.12 10 / 0.24),
       0 0 0 8px oklch(0.78 0.12 10 / 0.1);
   }
   .dock {

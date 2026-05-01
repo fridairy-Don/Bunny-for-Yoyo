@@ -73,7 +73,7 @@ export class ApiSpeechPlayer implements SpeechPlayer {
       const result = await audioBus.playTts(
         payload.audioBase64,
         payload.mimeType ?? "audio/mpeg",
-        { onProgressMs },
+        { onProgressMs, onPlaybackStart: options.onPlaybackStart },
       );
       // Ensure the final word lands as "spoken" so the last span shows the
       // read-through colour instead of freezing mid-sentence.

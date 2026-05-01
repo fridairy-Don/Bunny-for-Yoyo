@@ -16,8 +16,20 @@ import type {
 
 type BunnyController = {
   beginListening: () => void;
-  startSpeaking: () => void;
+  /**
+   * Switch the bunny to a speaking state. The optional `text` is used to
+   * pick between the neutral and happy speaking video — the visuals are
+   * driven directly from the assistant reply with a small keyword
+   * heuristic (see lib/conversation/infer-speak-action.ts).
+   */
+  startSpeaking: (hint?: { text?: string }) => void;
   returnToIdle: () => void;
+  /**
+   * Legacy hook kept for backwards compatibility. The post-speak "happy
+   * flourish" used to drive a static rig overlay; with the video stack
+   * it's a no-op (the bunny already conveyed emotion via the speaking
+   * loop). Wiring is preserved so removing the call sites isn't needed.
+   */
   showMomentaryReaction: (state: "happy" | "ear_react" | "blink", duration?: number) => void;
 };
 
@@ -172,10 +184,16 @@ export function useBunnyConversation(
       setSubtitle({ id: assistantTurn.id, text: assistantTurn.text, role: "assistant" });
 
       setStatus("speaking");
-      controller.startSpeaking();
+      // The bunny's mouth/body should NOT start animating when the LLM
+      // text reply lands — TTS still has to fetch + decode + start playing,
+      // which can take hundreds of ms. Hand startSpeaking off to the TTS
+      // player's onPlaybackStart so the speaking video begins in lockstep
+      // with the first audible sample. Subtitle still appears immediately
+      // (set above) so the text isn't held back.
       setActiveWordIndex(-1);
       await speechPlayerRef.current.speak(reply.text, {
         onWordChange: (idx) => setActiveWordIndex(idx),
+        onPlaybackStart: () => controller.startSpeaking({ text: reply.text }),
       });
       setActiveWordIndex(-1);
       controller.returnToIdle();
@@ -222,10 +240,12 @@ export function useBunnyConversation(
       setSubtitle({ id: assistantTurn.id, text: assistantTurn.text, role: "assistant" });
 
       setStatus("speaking");
-      controller.startSpeaking();
+      // Same lip-sync rule as the mic-driven path: the speaking video
+      // is gated on actual audio playback, not on the text being ready.
       setActiveWordIndex(-1);
       await speechPlayerRef.current.speak(replyText, {
         onWordChange: (idx) => setActiveWordIndex(idx),
+        onPlaybackStart: () => controller.startSpeaking({ text: replyText }),
       });
       setActiveWordIndex(-1);
       controller.returnToIdle();

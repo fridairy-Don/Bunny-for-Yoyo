@@ -1,0 +1,389 @@
+"use client";
+
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
+import {
+  REACTION_IDS,
+  REACTION_VIDEOS,
+  type BunnyBaseState,
+  type BunnyReactionId,
+} from "../../lib/config/bunny-videos";
+
+// ---------------------------------------------------------------------------
+// BunnyVideoPlayer
+// ---------------------------------------------------------------------------
+// Architecture:
+//   stack:  <video idle-loop>     always playing, opacity toggled
+//           <video listening-loop> always playing, opacity toggled
+//           <video listening2-loop>always playing, opacity toggled
+//           <video speaking-loop>  always playing, opacity toggled
+//           <video happy-speaking> always playing, opacity toggled
+//   top:    <video touch-happy>    always preloaded, played on demand
+//           <video touch-playful>  always preloaded, played on demand
+//           <video touch-ear>      always preloaded, played on demand
+//           <video touch-ticklish> always preloaded, played on demand
+//
+// All clips are alpha-channel VP9 webms — the page paper shows through
+// directly behind the bunny, no per-clip cream backdrop matching needed,
+// and no static idle.png fallback either (the old fallback bled its own
+// cream backdrop through during the first paint).
+// Switching base state = flip opacity on two layers (~120ms ease-out).
+// No src swap, no decoder restart. Reactions live in their own layer
+// above the base stack and are also pre-mounted so triggering one is
+// just `currentTime = 0; play(); opacity = 1`.
+
+const BASE_DIR = "/assets/bunny/video";
+
+// All five base loop ids, in stack order. Each has its own always-on
+// <video> element. Internal id (`listening` / `listening2`) is what the
+// player tracks; the public `state` prop is one of the four BunnyBaseState
+// values, with listening2 picked as a variant when state === "listening".
+const BASE_LOOP_IDS = [
+  "idle",
+  "listening",
+  "listening2",
+  "speaking",
+  "happy_speaking",
+] as const;
+type BaseLoopId = (typeof BASE_LOOP_IDS)[number];
+
+const BASE_LOOP_SRC: Record<BaseLoopId, string> = {
+  idle: `${BASE_DIR}/idle-loop-cutout.webm`,
+  listening: `${BASE_DIR}/listening-cutout.webm`,
+  listening2: `${BASE_DIR}/listening2-cutout.webm`,
+  speaking: `${BASE_DIR}/speaking-cutout.webm`,
+  happy_speaking: `${BASE_DIR}/happy-speaking-cutout.webm`,
+};
+
+const LISTENING_VARIANTS: BaseLoopId[] = ["listening", "listening2"];
+
+function pickListeningVariant(prev: BaseLoopId | null): BaseLoopId {
+  // Avoid the same listening loop twice in a row when there's a choice.
+  const pool = prev
+    ? LISTENING_VARIANTS.filter((id) => id !== prev)
+    : LISTENING_VARIANTS;
+  return pool[Math.floor(Math.random() * pool.length)] ?? "listening";
+}
+
+// Map the public state to an internal base-loop id.
+function resolveLoop(
+  state: BunnyBaseState,
+  lastListening: BaseLoopId | null,
+): BaseLoopId {
+  if (state === "listening") return pickListeningVariant(lastListening);
+  return state as BaseLoopId;
+}
+
+// ---------------------------------------------------------------------------
+// Debug snapshot — emitted on every render so the preview page can show
+// load state per layer. Optional; main app passes no callback.
+// ---------------------------------------------------------------------------
+
+export type BunnyVideoDebugInfo = {
+  baseState: BunnyBaseState;
+  visibleLoopId: BaseLoopId;
+  activeReactionId: BunnyReactionId | null;
+  loops: Array<{
+    id: BaseLoopId;
+    readyState: number;
+    canPlayThrough: boolean;
+    paused: boolean;
+  }>;
+  reactions: Array<{
+    id: BunnyReactionId;
+    readyState: number;
+    canPlayThrough: boolean;
+  }>;
+};
+
+type Props = {
+  /** Which base loop the bunny should be playing when no reaction is active. */
+  state: BunnyBaseState;
+  /** Click/tap handler — bubbles up so the parent can run cooldowns etc. */
+  onTap?: (e: React.PointerEvent<HTMLDivElement>) => void;
+  /** Optional debug hook called every animation frame with current load
+   *  state. Used by the preview page only. */
+  onDebug?: (info: BunnyVideoDebugInfo) => void;
+};
+
+export type BunnyVideoPlayerHandle = {
+  /** Play one of the touch reactions. If a reaction is already playing,
+   *  this interrupts it with a fresh one (different from the current). */
+  triggerRandomReaction: () => void;
+  /** Play a specific reaction by id. Used by the ear hotspot to always
+   *  fire the touch-ear clip; can also be used by the parent for
+   *  scripted reactions. Same interruption semantics as the random one. */
+  triggerReaction: (id: BunnyReactionId) => void;
+};
+
+export const BunnyVideoPlayer = forwardRef<BunnyVideoPlayerHandle, Props>(
+  function BunnyVideoPlayer({ state, onTap, onDebug }, ref) {
+    // ----- refs to all <video> elements (5 base + 4 reaction) -----------
+    const baseRefs = useRef<Record<BaseLoopId, HTMLVideoElement | null>>({
+      idle: null,
+      listening: null,
+      listening2: null,
+      speaking: null,
+      happy_speaking: null,
+    });
+    const reactionRefs = useRef<Record<BunnyReactionId, HTMLVideoElement | null>>({
+      "touch-happy": null,
+      "touch-playful": null,
+      "touch-ear": null,
+      "touch-ticklish": null,
+    });
+
+    // Which loop should be visible right now. Decoupled from the prop so
+    // we can pin to a listening variant once and not re-pick on every
+    // re-render.
+    const [visibleLoopId, setVisibleLoopId] = useState<BaseLoopId>("idle");
+    const lastListeningRef = useRef<BaseLoopId | null>(null);
+    const lastBaseStateRef = useRef<BunnyBaseState>("idle");
+
+    // Reaction state — null when none active.
+    const [activeReactionId, setActiveReactionId] = useState<
+      BunnyReactionId | null
+    >(null);
+    const lastReactionRef = useRef<BunnyReactionId | null>(null);
+
+    // ----- mount: kick all base videos into play() so they decode -------
+    useEffect(() => {
+      for (const id of BASE_LOOP_IDS) {
+        const el = baseRefs.current[id];
+        if (!el) continue;
+        el.muted = true;
+        el.playsInline = true;
+        el.loop = true;
+        el.preload = "auto";
+        el.play().catch(() => undefined);
+      }
+      // Reactions: warm preload only — they shouldn't be playing yet.
+      for (const id of REACTION_IDS) {
+        const el = reactionRefs.current[id];
+        if (!el) continue;
+        el.muted = true;
+        el.playsInline = true;
+        el.preload = "auto";
+        try {
+          el.load();
+        } catch {
+          // ignore
+        }
+      }
+    }, []);
+
+    // ----- react to state-prop changes ----------------------------------
+    useEffect(() => {
+      // Decide which loop to surface for this state. Only re-pick when the
+      // state ACTUALLY changes — re-running this effect for an unchanged
+      // state would re-roll listening variants and visually flicker.
+      if (lastBaseStateRef.current === state) return;
+      lastBaseStateRef.current = state;
+      const next = resolveLoop(state, lastListeningRef.current);
+      if (next === "listening" || next === "listening2") {
+        lastListeningRef.current = next;
+      }
+      setVisibleLoopId(next);
+    }, [state]);
+
+    // ----- internal: play a specific reaction ---------------------------
+    // Pulled out so both the imperative API and the internal hotspot
+    // click handlers route through the same code.
+    const playReactionRef = useRef<((id: BunnyReactionId) => void) | null>(
+      null,
+    );
+    playReactionRef.current = (reactionId: BunnyReactionId) => {
+      // If a different reaction is already up, pause it so we don't burn
+      // CPU decoding two clips at once. Its src stays loaded, so the
+      // next time it's triggered we get an instant restart.
+      if (activeReactionId && activeReactionId !== reactionId) {
+        const prev = reactionRefs.current[activeReactionId];
+        if (prev) {
+          try {
+            prev.pause();
+          } catch {
+            // ignore
+          }
+        }
+      }
+      const el = reactionRefs.current[reactionId];
+      if (!el) return;
+      try {
+        el.currentTime = 0;
+      } catch {
+        // ignore — happens if metadata isn't ready yet
+      }
+      el.play().catch(() => undefined);
+      lastReactionRef.current = reactionId;
+      setActiveReactionId(reactionId);
+    };
+
+    // ----- random reaction picker ---------------------------------------
+    // Picks any of the 4 reactions (including touch-ear), excluding the
+    // one that just played so rapid taps don't repeat. Pulled out so
+    // both the imperative API and the hotspot click handler share the
+    // same logic — no more ear/body split.
+    const pickRandomReaction = (): BunnyReactionId => {
+      const pool = REACTION_IDS.filter(
+        (id) => id !== lastReactionRef.current,
+      );
+      return (
+        pool[Math.floor(Math.random() * pool.length)] ??
+        REACTION_IDS[Math.floor(Math.random() * REACTION_IDS.length)] ??
+        REACTION_IDS[0]
+      );
+    };
+
+    // ----- imperative API ------------------------------------------------
+    useImperativeHandle(ref, () => ({
+      triggerRandomReaction: () => {
+        playReactionRef.current?.(pickRandomReaction());
+      },
+      triggerReaction: (id: BunnyReactionId) => {
+        // Still exposed for callers that want to force a specific
+        // reaction (e.g. scripted moments). The default tap path no
+        // longer uses this — see handleHotspotClick below.
+        playReactionRef.current?.(id);
+      },
+    }));
+
+    // ----- hotspot click handler ----------------------------------------
+    // Single full-bunny hotspot. Tapping anywhere on the bunny picks one
+    // of the 4 reactions at random, excluding whatever played last so
+    // rapid taps cycle through different animations. State guard: if
+    // the bunny is currently speaking, we drop the tap — interrupting
+    // a TTS reply with a giggle would be confusing for a child mid-listen.
+    const lastHotspotTapRef = useRef<number>(0);
+    const HOTSPOT_COOLDOWN_MS = 250;
+    const handleHotspotClick = (
+      e: React.MouseEvent | React.PointerEvent,
+    ) => {
+      e.stopPropagation();
+      if (state === "speaking" || state === "happy_speaking") return;
+      const now = Date.now();
+      if (now - lastHotspotTapRef.current < HOTSPOT_COOLDOWN_MS) return;
+      lastHotspotTapRef.current = now;
+      playReactionRef.current?.(pickRandomReaction());
+      // Notify the parent (analytics / cool-down side-effects). The
+      // reaction itself has already fired locally — the parent must
+      // NOT re-trigger one through its own ref binding or we'd double up.
+      onTap?.(e as React.PointerEvent<HTMLDivElement>);
+    };
+
+    const handleReactionEnded = useCallback(
+      (id: BunnyReactionId) => () => {
+        // Only hide if this is still the active reaction. A rapid tap may
+        // have already swapped to a different one.
+        setActiveReactionId((cur) => (cur === id ? null : cur));
+      },
+      [],
+    );
+
+    // ----- debug snapshots ---------------------------------------------
+    useEffect(() => {
+      if (!onDebug) return;
+      let raf: number | null = null;
+      const tick = () => {
+        const loops = BASE_LOOP_IDS.map((id) => {
+          const el = baseRefs.current[id];
+          return {
+            id,
+            readyState: el?.readyState ?? 0,
+            canPlayThrough: (el?.readyState ?? 0) >= 4,
+            paused: el?.paused ?? true,
+          };
+        });
+        const reactions = REACTION_IDS.map((id) => {
+          const el = reactionRefs.current[id];
+          return {
+            id,
+            readyState: el?.readyState ?? 0,
+            canPlayThrough: (el?.readyState ?? 0) >= 4,
+          };
+        });
+        onDebug({
+          baseState: state,
+          visibleLoopId,
+          activeReactionId,
+          loops,
+          reactions,
+        });
+        raf = requestAnimationFrame(tick);
+      };
+      tick();
+      return () => {
+        if (raf !== null) cancelAnimationFrame(raf);
+      };
+    }, [onDebug, state, visibleLoopId, activeReactionId]);
+
+    return (
+      <div
+        className="bunny-video"
+        role="presentation"
+      >
+        {/* Base loops — all five mounted, always decoding, only one
+            visible at a time via opacity. */}
+        {BASE_LOOP_IDS.map((id) => (
+          <video
+            key={id}
+            ref={(el) => {
+              baseRefs.current[id] = el;
+            }}
+            className="bunny-video__layer"
+            data-loop-id={id}
+            style={{
+              opacity: visibleLoopId === id && !activeReactionId ? 1 : 0,
+            }}
+            src={BASE_LOOP_SRC[id]}
+            muted
+            playsInline
+            autoPlay
+            loop
+            preload="auto"
+          />
+        ))}
+
+        {/* Reaction layers — all four mounted, preloaded, hidden until
+            triggered. Only one is visible at a time (sits above all
+            base layers via z-index). */}
+        {REACTION_IDS.map((id) => (
+          <video
+            key={id}
+            ref={(el) => {
+              reactionRefs.current[id] = el;
+            }}
+            className="bunny-video__layer bunny-video__reaction"
+            data-reaction-id={id}
+            style={{ opacity: activeReactionId === id ? 1 : 0 }}
+            src={REACTION_VIDEOS[id].src}
+            muted
+            playsInline
+            preload="auto"
+            onEnded={handleReactionEnded(id)}
+          />
+        ))}
+
+        {/* Single click hotspot — invisible, sits above every video
+            layer and covers the full bunny silhouette area. Tap picks
+            a random reaction (ear, happy, playful, ticklish) excluding
+            whatever played last. No-op while the bunny is speaking. */}
+        <div
+          className="bunny-video__hotspot"
+          onPointerDown={handleHotspotClick}
+          role="button"
+          aria-label="Tap bunny"
+        />
+      </div>
+    );
+  },
+);
+
+// Re-export for the preview page debug panel.
+export { BASE_LOOP_IDS };
+export type { BaseLoopId };

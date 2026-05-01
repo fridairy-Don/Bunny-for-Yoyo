@@ -11,6 +11,13 @@ export type WordTiming = {
 export type SpeakOptions = {
   onWordChange?: (wordIndex: number) => void;
   onProgress?: (elapsedMs: number, totalMs: number) => void;
+  /**
+   * Fires when audio actually starts being audible. Use this — not the
+   * speak() call — to trigger any visual that needs to land in lockstep
+   * with sound (e.g. opening the bunny's mouth). Called at most once per
+   * speak invocation.
+   */
+  onPlaybackStart?: () => void;
 };
 
 export type SpeechPlayer = {
@@ -39,7 +46,14 @@ class BrowserSpeechPlayer implements SpeechPlayer {
     const durationMs = this.estimateDurationMs(text);
 
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      // simulate word progression even in the no-audio fallback
+      // No speech engine at all — fire the start hook immediately so
+      // any visual that hangs off it doesn't get stuck waiting forever,
+      // then simulate word progression for the caption.
+      try {
+        options.onPlaybackStart?.();
+      } catch {
+        // ignore — caller errors must not break the simulation.
+      }
       await runFakeWordProgression(text, durationMs, options);
       return { durationMs };
     }
@@ -52,9 +66,27 @@ class BrowserSpeechPlayer implements SpeechPlayer {
       utterance.rate = 0.92;
       utterance.pitch = 1.18;
 
+      let startFired = false;
+      const fireStart = () => {
+        if (startFired) return;
+        startFired = true;
+        try {
+          options.onPlaybackStart?.();
+        } catch {
+          // ignore — caller errors must not break TTS.
+        }
+      };
+
+      utterance.onstart = () => {
+        fireStart();
+      };
+
       const fallbackTimer = window.setTimeout(() => {
         if (this.activeUtterance === utterance) {
           this.activeUtterance = null;
+          // If onstart never fired (engine quirks), still flush start
+          // before resolve so callers don't see "ended without started".
+          fireStart();
           resolve({ durationMs });
         }
       }, durationMs + 500);
@@ -64,7 +96,11 @@ class BrowserSpeechPlayer implements SpeechPlayer {
         if (this.activeUtterance === utterance) {
           this.activeUtterance = null;
         }
-
+        // Some Safari builds skip `onstart` and go straight to `onend`
+        // for very short utterances. Make sure the start hook still
+        // fires so consumers (e.g. the bunny mouth animation) don't
+        // miss the speak event entirely.
+        fireStart();
         resolve({ durationMs });
       };
 

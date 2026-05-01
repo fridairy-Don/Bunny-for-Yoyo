@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "NEXT_DIST_DIR=.next-dev next dev",
-    "dev:https": "NEXT_DIST_DIR=.next-dev next dev -H 0.0.0.0 --experimental-https --experimental-https-key ./certificates/lan-key.pem --experimental-https-cert ./certificates/lan-cert.pem",
+    "dev": "NEXT_DIST_DIR=.next-dev-3030 next dev -p 3030",
+    "dev:https": "NEXT_DIST_DIR=.next-dev-3030 next dev -H 0.0.0.0 -p 3030 --experimental-https --experimental-https-key ./certificates/lan-key.pem --experimental-https-cert ./certificates/lan-cert.pem",
     "build": "NEXT_DIST_DIR=.next-build next build",
     "start": "NEXT_DIST_DIR=.next-build next start",
     "test": "vitest run",
@@ -14,6 +14,7 @@
     "@supabase/supabase-js": "^2.104.1",
     "@tailwindcss/postcss": "^4.2.4",
     "next": "15.5.15",
+    "pixi.js": "^8.18.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "tailwindcss": "^4.2.4"
