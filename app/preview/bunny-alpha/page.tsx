@@ -51,57 +51,62 @@ const CLIPS: Record<
     cutoutSrc?: string;
   }
 > = {
+  // NB: `src` historically pointed at the legacy mp4 (cream-backdrop)
+  // for side-by-side comparison. Those mp4s have been deleted from
+  // /public — `src` now mirrors `cutoutSrc` so any dead-branch code
+  // path that still reads `src` won't 404. The dropdown only ever
+  // emits cutout entries, so in practice only `cutoutSrc` is read.
   idle: {
     label: "idle",
-    src: "/assets/bunny/video/idle-loop.mp4",
+    src: "/assets/bunny/video/idle-loop-cutout.webm",
     pageBg: "rgb(252, 239, 230)",
     cutoutSrc: "/assets/bunny/video/idle-loop-cutout.webm",
   },
   listening: {
     label: "listening",
-    src: "/assets/bunny/video/listening-loop.mp4",
+    src: "/assets/bunny/video/listening-cutout.webm",
     pageBg: "rgb(244, 230, 220)",
     cutoutSrc: "/assets/bunny/video/listening-cutout.webm",
   },
   listening2: {
     label: "listening 2",
-    src: "/assets/bunny/video/listening2-loop.mp4",
+    src: "/assets/bunny/video/listening2-cutout.webm",
     pageBg: "rgb(243, 228, 219)",
     cutoutSrc: "/assets/bunny/video/listening2-cutout.webm",
   },
   speaking: {
     label: "speaking 🆕",
-    src: "/assets/bunny/video/speaking-loop.mp4",
+    src: "/assets/bunny/video/speaking-cutout.webm",
     pageBg: "rgb(244, 229, 222)",
     cutoutSrc: "/assets/bunny/video/speaking-cutout.webm",
   },
   "happy-speaking": {
     label: "happy speaking 🆕",
-    src: "/assets/bunny/video/happy-speaking-loop.mp4",
+    src: "/assets/bunny/video/happy-speaking-cutout.webm",
     pageBg: "rgb(246, 229, 222)",
     cutoutSrc: "/assets/bunny/video/happy-speaking-cutout.webm",
   },
   "touch-happy": {
     label: "touch happy",
-    src: "/assets/bunny/video/touch-happy-react.mp4",
+    src: "/assets/bunny/video/touch-happy-react-cutout.webm",
     pageBg: "rgb(244, 229, 221)",
     cutoutSrc: "/assets/bunny/video/touch-happy-react-cutout.webm",
   },
   "touch-ear": {
     label: "touch ear",
-    src: "/assets/bunny/video/touch-ear-react.mp4",
+    src: "/assets/bunny/video/touch-ear-react-cutout.webm",
     pageBg: "rgb(245, 230, 220)",
     cutoutSrc: "/assets/bunny/video/touch-ear-react-cutout.webm",
   },
   "touch-tickle": {
     label: "touch tickle 🆕",
-    src: "/assets/bunny/video/touch-ticklish-react.mp4",
+    src: "/assets/bunny/video/touch-tickle-react-cutout.webm",
     pageBg: "rgb(245, 230, 220)",
     cutoutSrc: "/assets/bunny/video/touch-tickle-react-cutout.webm",
   },
   "touch-playful": {
     label: "touch playful 🆕",
-    src: "/assets/bunny/video/touch-playful-react.mp4",
+    src: "/assets/bunny/video/touch-playful-react-cutout.webm",
     pageBg: "rgb(243, 228, 220)",
     cutoutSrc: "/assets/bunny/video/touch-playful-react-cutout.webm",
   },
@@ -407,14 +412,14 @@ function BunnyClip({
   offsetY: number;
   background?: string;
 }) {
+  // The dropdown only emits "cutout" entries now; the legacy mp4 / webm
+  // / matanyone source files were removed in the asset cleanup. Fall
+  // back to the cutout webm everywhere so any dead branch that still
+  // executes still resolves to a real file.
   const src =
-    source === "webm"
-      ? "/assets/bunny/video/idle-loop.webm"
-      : source === "matanyone"
-        ? "/assets/bunny/video/idle-loop-matanyone.webm"
-        : source === "cutout"
-          ? cutoutSrc ?? "/assets/bunny/video/idle-loop-cutout.webm"
-          : mp4Src ?? "/assets/bunny/video/idle-loop.mp4";
+    source === "cutout"
+      ? cutoutSrc ?? "/assets/bunny/video/idle-loop-cutout.webm"
+      : mp4Src ?? cutoutSrc ?? "/assets/bunny/video/idle-loop-cutout.webm";
   // For mp4 we paint a backdrop at the EXACT cream the AI clip was
   // generated against, so the contain-letterbox area inside the bunny
   // slot reads as one continuous color. webm gets no backdrop because
