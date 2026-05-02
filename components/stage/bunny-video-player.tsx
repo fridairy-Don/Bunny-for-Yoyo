@@ -224,19 +224,56 @@ export const BunnyVideoPlayer = forwardRef<BunnyVideoPlayerHandle, Props>(
         el.preload = "auto";
         el.play().catch(() => undefined);
       }
-      // Reactions: warm preload only — they shouldn't be playing yet.
-      for (const id of REACTION_IDS) {
+      // Reactions: warm-decode each one so iOS Safari actually has a
+      // decoded first frame ready when we later flip opacity to 1.
+      // `el.load()` only fetches metadata on iPad — the decoder
+      // doesn't run until something calls play(). Without this, the
+      // first tap on the bunny lands on a video with zero decoded
+      // frames and the opacity-flip shows an empty rectangle for
+      // ~200-500ms while Safari catches up. We stagger the warmups
+      // with a small delay so all 9 decoders don't fight for the
+      // same hardware slots at once. Each is muted + playsInline,
+      // which the iOS autoplay policy allows even without a user
+      // gesture.
+      REACTION_IDS.forEach((id, idx) => {
         const el = reactionRefs.current[id];
-        if (!el) continue;
+        if (!el) return;
         el.muted = true;
         el.playsInline = true;
         el.preload = "auto";
-        try {
-          el.load();
-        } catch {
-          // ignore
-        }
-      }
+        // Stagger by 120ms each so we don't trip iPad's concurrent
+        // decoder limit. Total warmup window for 4 reactions = 480ms.
+        window.setTimeout(() => {
+          try {
+            el.currentTime = 0;
+          } catch {
+            // ignore
+          }
+          el
+            .play()
+            .then(() => {
+              // First frame is now in the decoder. Pause so it doesn't
+              // render and waste cycles — but the decoder STAYS warm,
+              // so the next play() is instant.
+              el.pause();
+              try {
+                el.currentTime = 0;
+              } catch {
+                // ignore
+              }
+            })
+            .catch(() => {
+              // If autoplay was rejected, fall back to load() — at
+              // least we have metadata. Tap will still work, just
+              // with a slightly slower first frame.
+              try {
+                el.load();
+              } catch {
+                // ignore
+              }
+            });
+        }, idx * 120);
+      });
     }, []);
 
     // ----- react to state-prop changes ----------------------------------
@@ -280,9 +317,40 @@ export const BunnyVideoPlayer = forwardRef<BunnyVideoPlayerHandle, Props>(
       } catch {
         // ignore — happens if metadata isn't ready yet
       }
-      el.play().catch(() => undefined);
       lastReactionRef.current = reactionId;
-      setActiveReactionId(reactionId);
+      // Defer the opacity-flip until the video element actually starts
+      // emitting frames. On iPad Safari, calling play() on a not-yet-
+      // decoded reaction layer takes 200-500ms before the first frame
+      // is rendered — if we flip opacity to 1 right away, the user
+      // sees an empty rectangle (the base loop is hidden, the reaction
+      // has no frames yet). Listening for `playing` waits exactly
+      // until the decoder has output ready, then both layers swap
+      // simultaneously.
+      //
+      // Fallback timer: if the `playing` event doesn't fire within
+      // 600ms (e.g. some Safari versions are sluggish), force the
+      // swap anyway so the tap doesn't feel dead.
+      let flipped = false;
+      const doFlip = () => {
+        if (flipped) return;
+        flipped = true;
+        setActiveReactionId(reactionId);
+      };
+      const onPlaying = () => {
+        el.removeEventListener("playing", onPlaying);
+        doFlip();
+      };
+      el.addEventListener("playing", onPlaying);
+      window.setTimeout(() => {
+        el.removeEventListener("playing", onPlaying);
+        doFlip();
+      }, 600);
+      el.play().catch(() => {
+        // play() rejected. Try once more after a short tick — iPad
+        // sometimes recovers from the autoplay denial that follows
+        // a freshly-loaded element.
+        window.setTimeout(() => el.play().catch(() => undefined), 50);
+      });
     };
 
     // ----- random reaction picker ---------------------------------------
