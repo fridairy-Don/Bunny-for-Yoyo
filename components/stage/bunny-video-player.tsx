@@ -40,10 +40,42 @@ import {
 
 const BASE_DIR = "/assets/bunny/video";
 
-// All five base loop ids, in stack order. Each has its own always-on
-// <video> element. Internal id (`listening` / `listening2`) is what the
-// player tracks; the public `state` prop is one of the four BunnyBaseState
-// values, with listening2 picked as a variant when state === "listening".
+// ---------------------------------------------------------------------------
+// Format selection — VP9 alpha (webm) for everyone EXCEPT Safari / iOS.
+// ---------------------------------------------------------------------------
+// Safari/iPadOS Safari does not honor the matroska `alpha_mode=1` side
+// channel: it decodes the VP9 RGB frame straight, leaving the bunny on
+// the chroma key green that MatAnyone composited the alpha over. We ship
+// the same clips re-encoded to HEVC + alpha (`.mov`, `hvc1`, BGRA via
+// `hevc_videotoolbox -alpha_quality 0.8 -tag:v hvc1`) — this is Apple's
+// canonical transparent-video format and is honored from iOS 13 onward.
+// Chrome/Firefox/Edge keep using the webm path (better cross-engine
+// support, smaller files, and identical to what shipped in v2-video-bunny).
+
+function isAppleWebKit(): boolean {
+  // SSR-safe: server returns false → first paint uses webm; we re-derive
+  // on mount inside an effect via state. The only Safari we care about
+  // here is the one that DOESN'T decode VP9 alpha — that is, Safari
+  // itself (desktop + iOS) and iOS Chrome / iOS Firefox (which under
+  // the hood are WKWebView and inherit the same VP9-alpha behavior).
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  // iOS / iPadOS — every browser there is WebKit. Catch iPad Safari
+  // even when Apple's "Request Desktop Site" is on (which strips the
+  // mobile string but keeps Mac OS X + Safari signature).
+  const isIos = /iPad|iPhone|iPod/.test(ua);
+  const iPadDesktopMode =
+    /Macintosh/.test(ua) &&
+    typeof document !== "undefined" &&
+    "ontouchend" in document;
+  if (isIos || iPadDesktopMode) return true;
+  // Desktop Safari: has Safari, doesn't have Chrome/Chromium/Edg.
+  const isSafariDesktop =
+    /Safari\//.test(ua) && !/Chrome|Chromium|Edg|OPR|Firefox/.test(ua);
+  return isSafariDesktop;
+}
+
+// Same set of clips, two encodings. Player picks one extension at mount.
 const BASE_LOOP_IDS = [
   "idle",
   "listening",
@@ -53,12 +85,27 @@ const BASE_LOOP_IDS = [
 ] as const;
 type BaseLoopId = (typeof BASE_LOOP_IDS)[number];
 
-const BASE_LOOP_SRC: Record<BaseLoopId, string> = {
+type SrcMap = Record<BaseLoopId, string>;
+
+const BASE_LOOP_SRC_WEBM: SrcMap = {
   idle: `${BASE_DIR}/idle-loop-cutout.webm`,
   listening: `${BASE_DIR}/listening-cutout.webm`,
   listening2: `${BASE_DIR}/listening2-cutout.webm`,
   speaking: `${BASE_DIR}/speaking-cutout.webm`,
   happy_speaking: `${BASE_DIR}/happy-speaking-cutout.webm`,
+};
+const BASE_LOOP_SRC_MOV: SrcMap = {
+  idle: `${BASE_DIR}/idle-loop-cutout.mov`,
+  listening: `${BASE_DIR}/listening-cutout.mov`,
+  listening2: `${BASE_DIR}/listening2-cutout.mov`,
+  speaking: `${BASE_DIR}/speaking-cutout.mov`,
+  happy_speaking: `${BASE_DIR}/happy-speaking-cutout.mov`,
+};
+const REACTION_SRC_OVERRIDE_MOV: Record<BunnyReactionId, string> = {
+  "touch-happy": `${BASE_DIR}/touch-happy-react-cutout.mov`,
+  "touch-playful": `${BASE_DIR}/touch-playful-react-cutout.mov`,
+  "touch-ear": `${BASE_DIR}/touch-ear-react-cutout.mov`,
+  "touch-ticklish": `${BASE_DIR}/touch-tickle-react-cutout.mov`,
 };
 
 const LISTENING_VARIANTS: BaseLoopId[] = ["listening", "listening2"];
@@ -145,6 +192,20 @@ export const BunnyVideoPlayer = forwardRef<BunnyVideoPlayerHandle, Props>(
     const [visibleLoopId, setVisibleLoopId] = useState<BaseLoopId>("idle");
     const lastListeningRef = useRef<BaseLoopId | null>(null);
     const lastBaseStateRef = useRef<BunnyBaseState>("idle");
+
+    // SSR-safe source selection. First paint uses webm (the SSR-time
+    // assumption); after mount we re-run UA detection — Safari/iOS
+    // swaps to .mov (HEVC alpha) because their VP9 decoder ignores
+    // alpha. For everyone else (Chrome/Firefox/Edge) the swap is a
+    // no-op and the src never changes. Captured in state so the
+    // attribute on every <video> updates atomically.
+    const [useMov, setUseMov] = useState(false);
+    useEffect(() => {
+      if (isAppleWebKit()) setUseMov(true);
+    }, []);
+    const baseLoopSrc: SrcMap = useMov ? BASE_LOOP_SRC_MOV : BASE_LOOP_SRC_WEBM;
+    const reactionSrcFor = (id: BunnyReactionId): string =>
+      useMov ? REACTION_SRC_OVERRIDE_MOV[id] : REACTION_VIDEOS[id].src;
 
     // Reaction state — null when none active.
     const [activeReactionId, setActiveReactionId] = useState<
@@ -331,7 +392,10 @@ export const BunnyVideoPlayer = forwardRef<BunnyVideoPlayerHandle, Props>(
             visible at a time via opacity. */}
         {BASE_LOOP_IDS.map((id) => (
           <video
-            key={id}
+            // Key includes useMov so React swaps the element entirely
+            // when the source format changes, avoiding mid-load src
+            // mutation glitches on Safari.
+            key={`${id}-${useMov ? "mov" : "webm"}`}
             ref={(el) => {
               baseRefs.current[id] = el;
             }}
@@ -340,7 +404,7 @@ export const BunnyVideoPlayer = forwardRef<BunnyVideoPlayerHandle, Props>(
             style={{
               opacity: visibleLoopId === id && !activeReactionId ? 1 : 0,
             }}
-            src={BASE_LOOP_SRC[id]}
+            src={baseLoopSrc[id]}
             muted
             playsInline
             autoPlay
@@ -354,14 +418,14 @@ export const BunnyVideoPlayer = forwardRef<BunnyVideoPlayerHandle, Props>(
             base layers via z-index). */}
         {REACTION_IDS.map((id) => (
           <video
-            key={id}
+            key={`${id}-${useMov ? "mov" : "webm"}`}
             ref={(el) => {
               reactionRefs.current[id] = el;
             }}
             className="bunny-video__layer bunny-video__reaction"
             data-reaction-id={id}
             style={{ opacity: activeReactionId === id ? 1 : 0 }}
-            src={REACTION_VIDEOS[id].src}
+            src={reactionSrcFor(id)}
             muted
             playsInline
             preload="auto"
