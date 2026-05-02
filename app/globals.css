@@ -398,8 +398,15 @@ button {
   --bunny-clip-feet-y: 48.8%;
 }
 .bunny-video__layer[data-reaction-id="touch-ear"] {
-  /* feet at 69.84% of source */
-  --bunny-clip-feet-y: 45.8%;
+  /* The ear-react pose stretches one ear vertically — at the default
+     1.85 scale the ear-tip ends up ~2% above the container top, which
+     gets clipped by the surrounding chrome on tighter viewports
+     (iPad portrait). Drop the scale just for this clip so the full
+     ear stays visible. Feet-y recomputed for scale 1.7 so the feet
+     still pin to the shared 90% screen-y target across all clips. */
+  --bunny-video-scale: 1.7;
+  /* feet at 69.84% of source, scale 1.7 */
+  --bunny-clip-feet-y: 41.3%;
 }
 
 .bunny-video__layer {
